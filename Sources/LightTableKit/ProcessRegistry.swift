@@ -8,6 +8,12 @@ public final class ProcessRegistry: @unchecked Sendable {
         public let pid: Int32
         public let executable: String
         public let startedAt: Date
+
+        public init(pid: Int32, executable: String, startedAt: Date) {
+            self.pid = pid
+            self.executable = executable
+            self.startedAt = startedAt
+        }
     }
 
     public static let shared = ProcessRegistry(file: AppPaths.applicationSupport?

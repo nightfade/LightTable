@@ -71,7 +71,8 @@ public enum MediaScanner {
     ]
     /// Brands whose cameras can record log without a marker we know how to read. Their unmarked
     /// footage is "未识别" instead of being assumed to be normal 709.
-    static let logCapableBrands = ["panasonic", "fujifilm", "canon", "nikon", "dji", "blackmagic", "sony", "z cam"]
+    static let logCapableBrands = ["panasonic", "fujifilm", "canon", "nikon", "dji", "blackmagic", "sony", "z cam",
+                                   "zv-", "ilce-", "ilme-", "dc-", "x-t", "x-h", "x-s", "eos"]
 
     /// Lists media files under `root`, skipping hidden folders and LightTable's own output.
     public static func listFiles(in root: URL) -> (videos: [URL], photos: [URL]) {
@@ -191,7 +192,8 @@ public enum MediaScanner {
         }
         if let brand = brand?.lowercased(), logCapableBrands.contains(where: { brand.contains($0) }) {
             // A Sony or ZV clip without its XML could be anything; let the user decide.
-            return transfer == "bt709" && !brand.contains("sony") && !brand.hasPrefix("zv") && !brand.hasPrefix("ilce") ? .rec709 : .unknown
+            let sony = ["sony", "zv-", "ilce-", "ilme-"].contains { brand.contains($0) }
+            return transfer == "bt709" && !sony ? .rec709 : .unknown
         }
         return .rec709
     }

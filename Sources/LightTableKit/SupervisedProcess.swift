@@ -139,8 +139,19 @@ public final class SupervisedProcess: @unchecked Sendable {
         posix_spawnattr_init(&attributes)
         defer { posix_spawnattr_destroy(&attributes) }
         // Own process group (pgid = child pid), and close every other inherited descriptor.
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT))
+        // Reset signal handling too: ignored signals and the signal mask survive exec, and a parent
+        // that ignores SIGTERM would otherwise hand that on, leaving only SIGKILL to stop the child.
+        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT
+            | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK))
         posix_spawnattr_setpgroup(&attributes, 0)
+        var defaultSignals = sigset_t()
+        sigfillset(&defaultSignals)
+        sigdelset(&defaultSignals, SIGKILL)
+        sigdelset(&defaultSignals, SIGSTOP)
+        posix_spawnattr_setsigdefault(&attributes, &defaultSignals)
+        var emptyMask = sigset_t()
+        sigemptyset(&emptyMask)
+        posix_spawnattr_setsigmask(&attributes, &emptyMask)
 
         let argv = ([executable.path] + arguments).map { strdup($0) } + [nil]
         defer { argv.forEach { free($0) } }
