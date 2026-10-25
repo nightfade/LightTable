@@ -20,6 +20,9 @@ public struct HabitsOptions: Sendable {
     public var includeExports = false
     public var includePhones = false
     public var content: ContentMode = .auto
+    /// Where EXIF rows, MobileCLIP results and `stats.json` are kept. nil: `<root>/.lighttable-cache`,
+    /// or a folder under `~/Library/Caches/LightTable` when the root is read-only.
+    public var cacheDirectory: URL? = nil
 
     public init(root: URL, outputHTML: URL) {
         self.root = root
@@ -33,4 +36,8 @@ public struct HabitsSummary: Sendable {
     public let photoCount: Int
     public let scannedFiles: Int
     public let categoryCounts: [String: Int]
+    /// Every number in the report, machine-readable; used for the parity test with photo-habits.
+    public var statsFile: URL? = nil
+    /// Whether MobileCLIP looked at any image this run (false in `.meta`, or when the model is missing).
+    public var clipUsed = false
 }
