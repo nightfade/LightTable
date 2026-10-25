@@ -42,6 +42,8 @@
 
 - Gyroflow 退出码不可信：成功 = 文件存在且 ffprobe 时长与原片相差不到 1 秒
 - 先写隐藏的临时文件，校验后改名；续跑只跳过校验过的正式文件，LUT 失败时复用完整的 ProRes 中间文件
+- 成片旁边的隐藏文件 `.<成片名>.recipe` 记录生成它的设置（增稳开关、裁切、读出时间、编码、LUT 路径与修改时间）。设置不同就重做，不报「上次已完成」；中间文件同理用 `.staging-recipe`
+- `stop()` 在 `run()` 开始之前调用也有效（`run()` 不清除停止标志）
 - Gyroflow 1.6.3 实测：
   - 保留 UTC 创建时间，丢掉时区和 Sony XML
   - ProRes 中间文件把 full range 转成 limited 并标为 tv/bt709
@@ -56,8 +58,17 @@
 - App 传入明确的文件清单：增稳过的用成片，其余用原片
 - 拍摄时间取扫描阶段读到的带时区值（Sony XML `CreationDateValue`），原片和成片都用它分天
 - `selection.json` 的 `originalSourceFile` 记录成片对应的原片
-- 输出文件夹 `LightTable 高光`；有可续跑的检查点就续跑，否则用第一个未被占用的 `LightTable 高光 N`
+- 输出文件夹 `LightTable 高光`；同样的视频和内容已经挑完就跳过；有可续跑的检查点就续跑；否则用第一个未被占用的 `LightTable 高光 N`
+- 扫描和拍摄习惯都跳过 `LightTable 高光 N` 等带编号的输出文件夹（`MediaScanner.isOwnOutput`）
 - 资源包名是 `LightTable_TravelCutCore.bundle`；名字不对时 MobileCLIP 文字提示词会失效，主题判断悄悄退化
+
+### App 流水线
+
+- 挑高光、拍摄习惯、照片分组在 `AppModel.cancellable` 里运行，取消信号能传进引擎（Qwen、模型下载会停）
+- 增稳事件经 `DispatchQueue.main.async` 按顺序送达；只显示当前片段的「卡住」提示，过期的丢弃
+- 换文件夹时清空 LUT 选择；「上次用的」只在真正套了 LUT 时记录
+- 存储卡判定：可移除卷且卷根目录有 `DCIM`。另选的输出位置会被记住，结果放在其中以素材文件夹命名的子文件夹里
+- 2026-10-25 的独立审查（`docs/plans/app-review.md`）13 条已全部处理
 
 ### 拍摄习惯
 
@@ -103,13 +114,13 @@ LIGHTTABLE_SNAPSHOT_LUTS=<LUT 文件夹> [LIGHTTABLE_SNAPSHOT_AUTORUN=1] .build/
 
 | 项 | 结果 |
 |---|---|
-| LightTable 自测 | 6,129 项全过（kit 32、stabilize 128、habits 5,969） |
+| LightTable 自测 | 6,136 项全过（kit 35、stabilize 132、habits 5,969） |
 | TravelCut 自测 | 全过 |
 | 子进程异常 | 正常退出、静默卡死、忽略 SIGTERM、孙进程占管道、外部杀掉、整组停止、硬超时，都有测试 |
 | C0835.MP4 扫描 | ZV-E10、S-Log2、`rtmd`、`-08:00` 均识别正确，打包的 ffprobe/exiftool 也一致 |
 | C0835.MP4 增稳 + LUT | HEVC 4K，bt709 tv，AAC，时区写回 `-08:00`，无残留临时文件；沙盒里 Gyroflow 只能用 CPU，约 25–30 秒 |
 | 增稳 → 挑高光 | 成片进入挑高光，按相机时区分到 `D1_1026_周日/001_1410_…`，`selection.json` 记录原片；MobileCLIP 与 Qwen 从 App 包内正常运行 |
-| App 流水线 | 自动运行四项：增稳、挑高光、照片分组成功；拍摄习惯在没有相机照片时显示跳过原因 |
+| App 流水线 | 自动运行四项：增稳、挑高光、照片分组成功；拍摄习惯在没有相机照片时显示跳过原因。连跑第二次：增稳报「上次已完成」，挑高光不重做 |
 | 界面 | 离屏快照检查了首页、方案、选色调（含真实缩略图）、进度（含卡住提示）、结果 |
 | 打包 | `codesign --verify --strict` 通过；arm64；macOS 14.0 |
 

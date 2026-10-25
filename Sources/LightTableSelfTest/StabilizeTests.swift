@@ -738,7 +738,8 @@ func testRealClip() async {
     expect(videoStream["pix_fmt"] as? String == "yuv420p", "8-bit ZV-E10 → 8-bit output")
     expect(log.progressValues.contains { $0 > 0.1 && $0 < 0.9 }, "real clip reports intermediate progress")
     let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: output.deletingLastPathComponent().path)) ?? []
-    expect(leftovers.sorted() == ["C0835.mp4", "对照表.json"], "only the result and the map remain: \(leftovers)")
+    // The hidden recipe records which settings made the result; staging and temp files must be gone.
+    expect(Set(leftovers) == [".C0835.mp4.recipe", "C0835.mp4", "对照表.json"], "only the result, its recipe and the map remain: \(leftovers)")
     if let exiftool = Tools.find(.exiftool), let date = video.creationDate,
        let read = shell(exiftool, ["-s", "-s", "-s", "-QuickTime:CreationDate", output.path]) {
         print("  creation date: source \(date), output \(read.stdout.trimmingCharacters(in: .whitespacesAndNewlines))")
