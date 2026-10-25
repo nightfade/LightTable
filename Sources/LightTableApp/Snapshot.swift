@@ -1,5 +1,6 @@
 import AppKit
 import LightTableKit
+import Stabilize
 import SwiftUI
 
 /// Development aid: `LIGHTTABLE_SNAPSHOT=<out dir> LIGHTTABLE_SNAPSHOT_FOLDER=<footage>` renders
@@ -34,6 +35,9 @@ enum Snapshot {
             render(LUTPickerView(profile: group.profile).environmentObject(model), "3-lut-picker", outFolder,
                    size: CGSize(width: 860, height: 720), settle: 12)
         }
+        if environment["LIGHTTABLE_SNAPSHOT_AUTORUN"] != nil {
+            autorun(model, outFolder)
+        }
         model.stage = .running
         model.currentTask = .stabilize
         model.overallProgress = 0.37
@@ -50,6 +54,29 @@ enum Snapshot {
         render(RootView().environmentObject(model), "5-results", outFolder)
         exit(0)
     }
+
+    /// Runs the real pipeline through AppModel with every task selected and the first LUT for
+    /// each log group, then prints the reports. Exercises the App's own hand-over code.
+    @MainActor
+    private static func autorun(_ model: AppModel, _ outFolder: URL) {
+        model.selected = Set(TaskKind.allCases)
+        model.photoDryRun = environment("LIGHTTABLE_SNAPSHOT_PHOTO_WRITE") == nil
+        if let library = Preferences.lutFolder, let first = LUTPreview.listLUTs(in: library).first {
+            for group in model.groups { model.setChoice(group.profile.isLog ? .lut(first) : .none, for: group.profile) }
+        }
+        print("blocker:", model.blocker ?? "none", "jobs:", model.stabilizeJobs.count)
+        model.start()
+        while model.stage == .running {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        }
+        for report in model.reports {
+            print("[\(report.kind.title)] \(report.status) \(report.lines.joined(separator: " | ")) → \(report.openURL?.path ?? "-")")
+        }
+        render(RootView().environmentObject(model), "6-autorun-results", outFolder)
+        if let log = model.log { print("log:", log.file.path) }
+    }
+
+    private static func environment(_ key: String) -> String? { ProcessInfo.processInfo.environment[key] }
 
     @MainActor
     private static func render<V: View>(_ view: V, _ name: String, _ folder: URL, size: CGSize = CGSize(width: 760, height: 700), settle: TimeInterval = 0.4) {

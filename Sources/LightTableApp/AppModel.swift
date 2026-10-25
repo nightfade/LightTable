@@ -513,6 +513,9 @@ final class AppModel: ObservableObject {
                               openURL: summary.htmlFile, openLabel: "再次打开报告")
         } catch is CancellationError {
             return TaskReport(kind: .habits, status: .stopped, lines: ["已停止"])
+        } catch HabitsError.noPhotos {
+            // Nothing to count is not a failure, e.g. a folder of phone screenshots.
+            return TaskReport(kind: .habits, status: .skipped, lines: [Self.explain(HabitsError.noPhotos)])
         } catch {
             return TaskReport(kind: .habits, status: .failed, lines: [Self.explain(error)])
         }
