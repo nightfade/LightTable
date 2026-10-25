@@ -12,6 +12,7 @@ let usage = """
 
   scan <文件夹>                         列出视频（机型、画面类型、能否增稳）和照片数量
   gyroflow                              检查 Gyroflow 是否可用
+  tools                                 列出实际使用的 ffmpeg、ffprobe、exiftool 和 Gyroflow
   stabilize <文件夹> [--lut 文件.cube] [--lut-for 画面=文件.cube ...] [--no-stabilize]
             [--output 文件夹] [--max-zoom 117.6] [--readout-time 15.6] [--dry-run]
                                         增稳调色，结果在 <输出>/LightTable 增稳/
@@ -98,6 +99,13 @@ case "scan":
                video.creationDate ?? "-"].joined(separator: "\t"))
     }
     print("视频 \(scan.videos.count)（可增稳 \(scan.stabilizableCount)），照片 \(scan.photos.count)，读不出 \(scan.unreadable.count)")
+
+case "tools":
+    for tool in Tool.allCases { print("\(tool.rawValue)\t\(Tools.find(tool)?.path ?? "未找到")") }
+    switch Gyroflow.check() {
+    case .ready(let executable, let version): print("gyroflow\t\(executable.path)（\(version)）")
+    default: print("gyroflow\t不可用")
+    }
 
 case "gyroflow":
     switch Gyroflow.check() {

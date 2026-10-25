@@ -4,11 +4,12 @@ import Foundation
 public enum Tool: String, CaseIterable, Sendable {
     case ffmpeg, ffprobe, exiftool
 
-    /// Folder inside `Contents/Helpers/` the release build copies the tool into.
-    var helperFolder: String {
+    /// Where the release build puts the tool, relative to `Contents/`. Compiled tools go in
+    /// Helpers; exiftool is a Perl script with a library, which codesign wants in Resources.
+    var bundledPath: String {
         switch self {
-        case .ffmpeg, .ffprobe: "ffmpeg"
-        case .exiftool: "exiftool"
+        case .ffmpeg, .ffprobe: "Helpers/ffmpeg/\(rawValue)"
+        case .exiftool: "Resources/exiftool/exiftool"
         }
     }
 }
@@ -21,9 +22,14 @@ public enum Tools {
            FileManager.default.isExecutableFile(atPath: override) {
             return URL(fileURLWithPath: override)
         }
-        let bundled = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Helpers/\(tool.helperFolder)/\(tool.rawValue)")
-        if FileManager.default.isExecutableFile(atPath: bundled.path) { return bundled }
+        // The app's own Helpers, also when running as Contents/Helpers/lighttable-cli.
+        let executableFolder = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath().deletingLastPathComponent()
+        for bundled in [
+            Bundle.main.bundleURL.appendingPathComponent("Contents/\(tool.bundledPath)"),
+            executableFolder.deletingLastPathComponent().appendingPathComponent(tool.bundledPath),
+        ] where FileManager.default.isExecutableFile(atPath: bundled.path) {
+            return bundled
+        }
         let path = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
         for directory in ["/opt/homebrew/bin", "/usr/local/bin"] + path + ["/usr/bin"] {
             let candidate = URL(fileURLWithPath: directory).appendingPathComponent(tool.rawValue)
