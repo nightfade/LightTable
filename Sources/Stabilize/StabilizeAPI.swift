@@ -41,12 +41,44 @@ public struct StabilizeSettings: Sendable {
     /// Rolling-shutter readout time in ms; nil leaves correction off.
     public var readoutTime: Double?
     public var gyroflow: URL?
+    /// Clips run one at a time; Gyroflow already saturates the GPU. Kept for the 高级 page.
     public var jobs: Int = 1
+    public var codec: StabilizeCodec = .hevc
+    /// Stall and stop timings; the defaults scale with each clip, tests shorten them.
+    public var timing = StabilizeTiming()
+    /// Tool overrides, mainly for tests. nil: `Tools.find`.
+    public var ffmpeg: URL?
+    public var ffprobe: URL?
+    public var exiftool: URL?
+    /// Free bytes on the volume holding a URL. nil: ask the file system. Tests inject a fake.
+    public var freeSpaceProbe: (@Sendable (URL) -> Int64?)?
 
     public init(sourceRoot: URL, outputRoot: URL) {
         self.sourceRoot = sourceRoot
         self.outputRoot = outputRoot
     }
+}
+
+/// Delivery codec. VideoToolbox only, so the bundled LGPL ffmpeg suffices.
+public enum StabilizeCodec: String, Sendable, CaseIterable {
+    case hevc, h264
+}
+
+public struct StabilizeTiming: Sendable {
+    /// Seconds without output or file growth before a child counts as stuck. nil: scaled by clip
+    /// duration and resolution (at least two minutes).
+    public var stallTimeout: TimeInterval?
+    /// Total time allowed per child. nil: scaled by clip.
+    public var hardTimeout: TimeInterval?
+    /// Quiet time before `.quiet` events start. nil: a quarter of the stall timeout, at most 30 s.
+    public var quietAfter: TimeInterval?
+    public var heartbeatInterval: TimeInterval = 1
+    public var terminationGrace: TimeInterval = 5
+    public var killGrace: TimeInterval = 3
+    /// Time allowed for `gyroflow --version` and other short probes.
+    public var probeTimeout: TimeInterval = 60
+
+    public init() {}
 }
 
 public enum ClipStatus: Equatable, Sendable {
@@ -61,6 +93,8 @@ public struct ClipResult: Sendable {
     public let job: StabilizeJob
     public let output: URL?
     public let status: ClipStatus
+    /// Problems that did not fail the clip, e.g. the creation date could not be written back.
+    public var warnings: [String] = []
 }
 
 public enum StabilizeEvent: Sendable {

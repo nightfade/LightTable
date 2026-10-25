@@ -261,7 +261,12 @@ public final class SupervisedProcess: @unchecked Sendable {
         lock.withLock { reaped = exit }
         // The child may have spawned a grandchild that keeps the pipes open; a missing EOF must
         // not keep the process looking alive.
-        _ = readersDone.wait(timeout: .now() + 0.5)
+        if readersDone.wait(timeout: .now() + 0.5) == .timedOut {
+            // Something the child left behind still holds the pipes. It is in the child's process
+            // group (a group id is not reused while members exist), and LightTable never wants
+            // it outliving the run, e.g. still writing into a file about to be validated.
+            kill(-child, SIGKILL)
+        }
         exitSignal.signal()
         exitSignal.signal()
         let ending: Ending = lock.withLock {
