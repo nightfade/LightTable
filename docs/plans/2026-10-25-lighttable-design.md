@@ -128,7 +128,7 @@ LightTable（看片台）是一个 Mac 原生 App，合并 TravelCut、batch-gyr
 ### 输出与续跑
 
 - `LightTable 增稳/` 下保持原子文件夹结构，文件名不变
-- 成片的创建时间和时区与原片比对，不一致则用 exiftool 写回
+- 成片写回原片的带时区创建时间（Gyroflow 只保留 UTC，已实测）；机型与伽马记入 `LightTable 增稳/对照表.json`
 - 已完整生成的成片跳过
 - 开始前按总时长和分辨率估算耗时和空间，不足则拦截并说明差多少
 
@@ -218,8 +218,6 @@ LightTable（看片台）是一个 Mac 原生 App，合并 TravelCut、batch-gyr
 
 ## 待实测
 
-- Gyroflow 成片是否保留原片 PCM 音轨
-- Gyroflow 成片是否保留创建时间和时区
 - 松下 V-Log 的伽马信息能否读取
 - Gyroflow 命令行裁切参数（若将来需要只渲染部分时间段）
 
@@ -229,7 +227,13 @@ LightTable（看片台）是一个 Mac 原生 App，合并 TravelCut、batch-gyr
 - XML：`DeviceModelName = ZV-E10`，`CaptureGammaEquation = s-log2`，`TimeZone = -08:00`；未找到 SteadyShot 状态
 - AVFoundation 只列出视频和音频两条轨，看不到 `rtmd`
 - `AVAssetExportPresetPassthrough` 剪 2 秒：输出只有视频和音频，传感器数据 0 条
+- Gyroflow 1.6.3 增稳（batch_gyroflow 默认参数，H.265）：
+  - 音轨保留，PCM 转成 AAC
+  - 容器 `creation_time` 为正确的 UTC（2025-10-26T22:10:41Z）
+  - 时区、Sony XML（机型、`CaptureGammaEquation`）全部丢失，另多一条 `tmcd` 时间码轨
+  - 在 Claude Code 沙盒里 GPU 初始化失败，退回 CPU（3.5 秒 4K 用 24 秒）；正常 App 进程不受此限
 - 结论：
   - 不能先剪再增稳
+  - 成片的时区、机型、伽马须从原片取：写回 `QuickTime:CreationDate`（带时区），机型与伽马记入增稳对照表
   - 识别陀螺仪轨须用 ffprobe 或自行解析 MP4，不能用 AVFoundation
   - 防抖开关状态读不到，相关提示不做
