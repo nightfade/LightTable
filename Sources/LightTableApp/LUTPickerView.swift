@@ -74,6 +74,7 @@ struct LUTPickerView: View {
         }
         .padding(22)
         .frame(width: 860, height: 720)
+        .background(Color(nsColor: .windowBackgroundColor))
         .task {
             if let current = group?.choice, current != .undecided { state.choice = current }
             reloadLibrary()
@@ -106,6 +107,7 @@ struct LUTPickerView: View {
                 if let original {
                     Image(nsImage: original).resizable().scaledToFit()
                         .frame(width: geometry.size.width, height: geometry.size.height)
+
                     if let after {
                         Image(nsImage: after).resizable().scaledToFit()
                             .frame(width: geometry.size.width, height: geometry.size.height)
@@ -116,15 +118,14 @@ struct LUTPickerView: View {
                     Rectangle().fill(.white).frame(width: 2)
                         .offset(x: geometry.size.width * state.divider - 1)
                         .shadow(radius: 2)
-                    HStack {
-                        Text("原片").padding(4).background(.black.opacity(0.5)).foregroundStyle(.white)
-                        Spacer()
-                        Text(state.choice.url?.deletingPathExtension().lastPathComponent ?? "原样")
-                            .padding(4).background(.black.opacity(0.5)).foregroundStyle(.white)
-                    }
-                    .font(.caption)
-                    .frame(maxHeight: .infinity, alignment: .top)
-                    .padding(6)
+                    // Captions last so the graded half does not cover them; sized like the image.
+                    Color.clear.aspectRatio(original.size, contentMode: .fit)
+                        .overlay(alignment: .topLeading) { caption("原片") }
+                        .overlay(alignment: .topTrailing) {
+                            caption(state.choice.url?.deletingPathExtension().lastPathComponent ?? "不调色")
+                        }
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .allowsHitTesting(false)
                 } else {
                     ProgressView("正在取样张…").frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -135,6 +136,11 @@ struct LUTPickerView: View {
                 state.divider = min(1, max(0, value.location.x / max(1, geometry.size.width)))
             })
         }
+    }
+
+    private func caption(_ text: String) -> some View {
+        Text(text).font(.caption).padding(.horizontal, 6).padding(.vertical, 3)
+            .background(.black.opacity(0.55)).foregroundStyle(.white).padding(6)
     }
 
     private func tile(title: String, image: NSImage?, selected: Bool, badge: String?, isFailed: Bool = false,

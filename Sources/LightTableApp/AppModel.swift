@@ -177,7 +177,7 @@ final class AppModel: ObservableObject {
         reports = []
     }
 
-    private func applyScan(_ result: ScanResult) {
+    func applyScan(_ result: ScanResult) {
         scan = result
         guard !result.videos.isEmpty || !result.photos.isEmpty else {
             errorMessage = "这个文件夹里没有找到视频或照片。"

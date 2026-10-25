@@ -6,6 +6,10 @@ struct LightTableApplication: App {
     @StateObject private var model = AppModel()
     @NSApplicationDelegateAdaptor private var delegate: AppDelegate
 
+    init() {
+        Snapshot.runIfRequested()
+    }
+
     var body: some Scene {
         Window("LightTable", id: "main") {
             RootView()
