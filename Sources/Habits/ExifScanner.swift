@@ -72,7 +72,7 @@ enum ExifScanner {
             closedir(handle)
             for name in subdirs {
                 if name.hasPrefix(".") || excluded.contains(where: { name.lowercased().contains($0) }) { continue }
-                if MediaScanner.excludedFolderNames.contains(name) { continue }
+                if MediaScanner.isOwnOutput(name) { continue }
                 visit(dir + "/" + name)
             }
         }

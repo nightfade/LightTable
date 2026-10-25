@@ -117,6 +117,8 @@ final class AppModel: ObservableObject {
     @Published var currentTask: TaskKind?
     @Published var detail = ""
     @Published var quiet: (name: String, seconds: Int)?
+    /// Clip the stabilise step is working on; a stuck notice for any other clip is stale.
+    private var currentClip: String?
     @Published var pausedReason: String?
     @Published var stopping = false
     @Published var reports: [TaskReport] = []
@@ -155,6 +157,7 @@ final class AppModel: ObservableObject {
         folder = url
         errorMessage = nil
         reports = []
+        groups = []
         stage = .scanning
         scanProgress = (0, 0)
         Task {
@@ -296,7 +299,9 @@ final class AppModel: ObservableObject {
         stage = .running
         beginActivity()
         let jobs = stabilizeJobs
-        for group in groups where gradeOn { Preferences.setLastLUT(group.choice.url, for: group.profile) }
+        if plan.contains(.stabilize) && gradeOn {
+            for group in groups { if let lut = group.choice.url { Preferences.setLastLUT(lut, for: group.profile) } }
+        }
 
         pipeline = Task {
             var stabilized: [URL: URL] = [:]
@@ -338,6 +343,7 @@ final class AppModel: ObservableObject {
     }
 
     func skipCurrentClip() {
+        guard let shown = quiet, shown.name == currentClip else { quiet = nil; return }
         quiet = nil
         stabilizeEngine?.skipCurrent()
     }
@@ -370,9 +376,11 @@ final class AppModel: ObservableObject {
     /// Output goes next to the footage unless that folder is read-only or on a memory card.
     private func resolveOutputRoot(for folder: URL) -> URL? {
         let values = try? folder.resourceValues(forKeys: [.volumeIsRemovableKey, .volumeIsReadOnlyKey, .volumeIsEjectableKey])
-        let removable = values?.volumeIsRemovable == true && values?.volumeIsEjectable == true
-            && FileManager.default.fileExists(atPath: folder.appendingPathComponent("DCIM").path)
-            || FileManager.default.fileExists(atPath: Self.volumeRoot(of: folder).appendingPathComponent("DCIM").path)
+        // A memory card: a removable volume with the camera's DCIM folder at its root. External
+        // SSDs are removable too but have no DCIM, and results belong next to the footage there.
+        let cardVolume = values?.volumeIsRemovable == true || values?.volumeIsEjectable == true
+        let removable = cardVolume
+            && FileManager.default.fileExists(atPath: Self.volumeRoot(of: folder).appendingPathComponent("DCIM").path)
         let writable = FileManager.default.isWritableFile(atPath: folder.path) && values?.volumeIsReadOnly != true
         if writable && !removable { return folder }
         let alert = NSAlert()
@@ -388,8 +396,19 @@ final class AppModel: ObservableObject {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
+        if let last = UserDefaults.standard.string(forKey: "LightTable.outputFolder") {
+            panel.directoryURL = URL(fileURLWithPath: last)
+        }
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
-        return url
+        guard FileManager.default.isWritableFile(atPath: url.path) else {
+            errorMessage = "选的文件夹不能写入，请换一个。"
+            return nil
+        }
+        UserDefaults.standard.set(url.path, forKey: "LightTable.outputFolder")
+        // One folder per footage folder, so two trips do not mix.
+        let target = url.appendingPathComponent(folder.lastPathComponent, isDirectory: true)
+        try? FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        return target
     }
 
     private static func volumeRoot(of url: URL) -> URL {
@@ -406,21 +425,27 @@ final class AppModel: ObservableObject {
         if case .ready(let executable, _) = gyroflow { settings.gyroflow = executable }
         let engine = StabilizeEngine(settings: settings)
         stabilizeEngine = engine
+        if Task.isCancelled || stopping { engine.stop() }
         let log = self.log
-        let summary = await engine.run(jobs) { event in
-            Task { @MainActor [weak self] in
+        let summary = await withTaskCancellationHandler {
+            await engine.run(jobs) { event in
+            // FIFO onto the main queue: separate Tasks may run out of order, and a late .quiet for
+            // a finished clip would offer to skip the wrong one.
+            DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 switch event {
                 case .clipStarted(let index, let total, let name):
                     self.quiet = nil
+                    self.currentClip = name
                     self.detail = "增稳调色 \(index + 1)/\(total)：\(name)"
                     log?.write("开始 \(name)")
                 case .progress(let overall, _, let message):
                     progress(overall, message)
                 case .quiet(let name, let seconds):
-                    if seconds >= 30 { self.quiet = (name, Int(seconds)) }
+                    if seconds >= 30, name == self.currentClip { self.quiet = (name, Int(seconds)) }
                 case .clipFinished(let result):
                     self.quiet = nil
+                    self.currentClip = nil
                     log?.write("\(result.job.source.relativePath)：\(Self.describe(result.status))"
                         + (result.warnings.isEmpty ? "" : "（\(result.warnings.joined(separator: "；"))）"))
                 case .paused(let reason):
@@ -430,12 +455,19 @@ final class AppModel: ObservableObject {
                     self.pausedReason = nil
                 }
             }
+            }
+        } onCancel: {
+            engine.stop()
         }
         stabilizeEngine = nil
+        currentClip = nil
+        quiet = nil
         let done = summary.results.filter { $0.status == .done || $0.status == .alreadyDone }
         let failed = summary.results.filter { if case .failed = $0.status { return true } else { return false } }
         let skipped = summary.results.filter { if case .skipped = $0.status { return true } else { return false } }
-        var lines = ["完成 \(done.count) 段"]
+        let reused = summary.results.filter { $0.status == .alreadyDone }.count
+        var lines = [reused == 0 ? "完成 \(done.count) 段"
+                     : reused == done.count ? "\(reused) 段上次已完成，没有重做" : "完成 \(done.count) 段，其中 \(reused) 段上次已完成"]
         if !skipped.isEmpty { lines.append("跳过 \(skipped.count) 段") }
         for result in failed.prefix(5) { lines.append("\(result.job.source.relativePath)：\(Self.describe(result.status))") }
         if failed.count > 5 { lines.append("另有 \(failed.count - 5) 段失败，详见日志") }
@@ -456,14 +488,19 @@ final class AppModel: ObservableObject {
             if let date = video.creationDate { dates[file.standardizedFileURL.path] = date }
             if file != video.url { originals[file.standardizedFileURL.path] = video.url.path }
         }
+        if let finished = Self.finishedHighlights(in: output, files: files, themes: themes) {
+            return TaskReport(kind: .highlights, status: .success,
+                              lines: ["上次已用同样的视频和内容挑过，没有重做"],
+                              openURL: finished, openLabel: "打开高光片段")
+        }
         let configuration = Self.highlightConfiguration(output: output, files: files, dates: dates,
                                                          originals: originals, themes: themes, input: scan.root)
         do {
-            let summary = try await Task.detached(priority: .userInitiated) {
+            let summary = try await Self.cancellable {
                 try await HighlightEngine().run(configuration: configuration) { update in
-                    Task { @MainActor in progress(update.fraction, update.message) }
+                    DispatchQueue.main.async { progress(update.fraction, update.message) }
                 }
-            }.value
+            }
             return TaskReport(kind: .highlights, status: .success,
                               lines: ["从 \(summary.inputVideoCount) 段视频中挑出 \(summary.selectedClipCount) 段高光"],
                               openURL: summary.outputFolder, openLabel: "打开高光片段")
@@ -473,6 +510,27 @@ final class AppModel: ObservableObject {
             if Task.isCancelled { return TaskReport(kind: .highlights, status: .stopped, lines: ["已停止"]) }
             return TaskReport(kind: .highlights, status: .failed, lines: [Self.explain(error)])
         }
+    }
+
+    /// A `LightTable 高光…` folder whose selection.json came from the same videos and themes.
+    nonisolated static func finishedHighlights(in output: URL, files: [URL], themes: Set<HighlightTheme>) -> URL? {
+        let wanted = Set(files.map(\.standardizedFileURL.path))
+        let themeNames = Set(themes.map(\.rawValue))
+        guard let children = try? FileManager.default.contentsOfDirectory(at: output, includingPropertiesForKeys: nil) else { return nil }
+        for folder in children where folder.lastPathComponent.hasPrefix("LightTable 高光") {
+            guard let data = try? Data(contentsOf: folder.appendingPathComponent("selection.json")),
+                  let report = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let analyzed = report["analyzedVideos"] as? Int, analyzed == wanted.count,
+                  let selectedThemes = report["selectedThemes"] as? [String], Set(selectedThemes) == themeNames,
+                  let clips = report["exportedClips"] as? [[String: Any]]
+            else { continue }
+            let sources = clips.compactMap { $0["sourceFile"] as? String }.map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+            let outputsExist = clips.allSatisfy { clip in
+                (clip["outputFile"] as? String).map { FileManager.default.fileExists(atPath: $0) } ?? false
+            }
+            if sources.allSatisfy(wanted.contains), outputsExist { return folder }
+        }
+        return nil
     }
 
     /// Reuses `LightTable 高光` when it holds a checkpoint for this exact job, otherwise the
@@ -502,11 +560,11 @@ final class AppModel: ObservableObject {
     private func runHabits(root: URL, output: URL, progress: @escaping @MainActor (Double, String) -> Void) async -> TaskReport {
         let options = HabitsOptions(root: root, outputHTML: output.appendingPathComponent("LightTable 拍摄习惯.html"))
         do {
-            let summary = try await Task.detached(priority: .userInitiated) {
+            let summary = try await Self.cancellable {
                 try await HabitsEngine().run(options) { message, fraction in
-                    Task { @MainActor in progress(fraction, message) }
+                    DispatchQueue.main.async { progress(fraction, message) }
                 }
-            }.value
+            }
             NSWorkspace.shared.open(summary.htmlFile)
             return TaskReport(kind: .habits, status: .success,
                               lines: ["统计了 \(summary.photoCount) 张照片，报告已在浏览器打开"],
@@ -530,11 +588,11 @@ final class AppModel: ObservableObject {
             writeRatings: !photoDryRun, writeStars: photoWriteStars, exportFeatures: false, debugLog: false,
             onlinePlaces: photoOnlinePlaces)
         do {
-            let summary = try await Task.detached(priority: .userInitiated) {
+            let summary = try await Self.cancellable {
                 try await PhotoCullEngine().run(configuration: configuration) { update in
-                    Task { @MainActor in progress(update.fraction, update.message) }
+                    DispatchQueue.main.async { progress(update.fraction, update.message) }
                 }
-            }.value
+            }
             var lines = ["\(summary.photoCount) 张照片分成 \(summary.groupCount) 组"]
             if summary.rejectedCount > 0 && !configuration.writeStars { lines.append("\(summary.rejectedCount) 张可能是废片（只加了关键字）") }
             if summary.skippedUserMarked > 0 { lines.append("已有你的星级或标签而跳过 \(summary.skippedUserMarked) 张") }
@@ -574,8 +632,15 @@ final class AppModel: ObservableObject {
             try? lines.joined(separator: "\n").write(to: logFolder.appendingPathComponent("素材清单.txt"), atomically: true, encoding: .utf8)
         }
         try? FileManager.default.removeItem(at: destination)
-        _ = try? Tools.run(URL(fileURLWithPath: "/usr/bin/ditto"), ["-c", "-k", "--keepParent", logFolder.path, destination.path])
-        NSWorkspace.shared.activateFileViewerSelecting([destination])
+        do {
+            try Tools.run(URL(fileURLWithPath: "/usr/bin/ditto"), ["-c", "-k", "--keepParent", logFolder.path, destination.path])
+            NSWorkspace.shared.activateFileViewerSelecting([destination])
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "没能导出诊断信息"
+            alert.informativeText = "\(Self.explain(error))\n可以直接把这个文件夹发给帮你看的人：\(logFolder.path)"
+            alert.runModal()
+        }
     }
 
     private func beginActivity() {
@@ -588,6 +653,14 @@ final class AppModel: ObservableObject {
     private func endActivity() {
         if let activity { ProcessInfo.processInfo.endActivity(activity) }
         activity = nil
+    }
+
+    /// Runs engine work off the main actor while passing cancellation through: a plain detached
+    /// task would not see the pipeline being cancelled, so 停止 would wait for Qwen or a model
+    /// download to finish on its own.
+    nonisolated static func cancellable<T: Sendable>(_ work: @escaping @Sendable () async throws -> T) async throws -> T {
+        let task = Task.detached(priority: .userInitiated) { try await work() }
+        return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
     }
 
     nonisolated static func describe(_ status: ClipStatus) -> String {

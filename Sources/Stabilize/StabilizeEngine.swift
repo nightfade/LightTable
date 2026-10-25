@@ -90,6 +90,25 @@ public final class StabilizeEngine: @unchecked Sendable {
 
         var name: String { job.source.url.deletingPathExtension().lastPathComponent }
         var partial: URL { StabilizeCommands.partialURL(for: output) }
+        /// Hidden note of the settings that produced `output` / `staging`, so a final made with
+        /// another LUT, crop or codec is redone instead of reported as already done.
+        var recipeFile: URL { output.deletingLastPathComponent().appendingPathComponent(".\(output.lastPathComponent).recipe") }
+        var stagingRecipeFile: URL { output.deletingLastPathComponent().appendingPathComponent(".\(output.lastPathComponent).staging-recipe") }
+
+        func recipe(_ settings: StabilizeSettings) -> String {
+            var parts = ["v1", "codec=\(settings.codec.rawValue)", "stabilize=\(stabilize)"]
+            if stabilize { parts.append(stagingRecipe(settings)) }
+            if let lut {
+                let modified = (try? lut.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)?
+                    .timeIntervalSince1970 ?? 0
+                parts.append("lut=\(lut.standardizedFileURL.path)@\(Int(modified))")
+            }
+            return parts.joined(separator: ";")
+        }
+
+        func stagingRecipe(_ settings: StabilizeSettings) -> String {
+            "zoom=\(settings.maxZoom.map { String($0) } ?? "-"),readout=\(settings.readoutTime.map { String($0) } ?? "-")"
+        }
         var staging: URL { StabilizeCommands.stagingURL(for: output) }
     }
 
@@ -156,8 +175,8 @@ public final class StabilizeEngine: @unchecked Sendable {
     }
 
     public func run(_ jobs: [StabilizeJob], events: @escaping @Sendable (StabilizeEvent) -> Void) async -> StabilizeSummary {
+        // stopRequested is not reset: a stop() that lands before run() starts must still count.
         lock.withLock {
-            stopRequested = false
             skipRequested = false
             isPaused = false
             resumeArrived = false
@@ -254,6 +273,7 @@ public final class StabilizeEngine: @unchecked Sendable {
 
         // A validated final file from an earlier run.
         if FileManager.default.fileExists(atPath: plan.output.path),
+           (try? String(contentsOf: plan.recipeFile, encoding: .utf8)) == plan.recipe(settings),
            await durationMatches(plan.output, source: job.source, ffprobe: ffprobe) {
             return finish(.alreadyDone, output: plan.output)
         }
@@ -273,7 +293,8 @@ public final class StabilizeEngine: @unchecked Sendable {
         // Reuse a complete staging file left by a run whose LUT pass failed or was stopped.
         var reuseStaging = false
         if plan.stabilize, plan.lut != nil, FileManager.default.fileExists(atPath: plan.staging.path) {
-            reuseStaging = await durationMatches(plan.staging, source: job.source, ffprobe: ffprobe)
+            reuseStaging = (try? String(contentsOf: plan.stagingRecipeFile, encoding: .utf8)) == plan.stagingRecipe(settings)
+            if reuseStaging { reuseStaging = await durationMatches(plan.staging, source: job.source, ffprobe: ffprobe) }
             if !reuseStaging { try? FileManager.default.removeItem(at: plan.staging) }
         }
 
@@ -296,6 +317,7 @@ public final class StabilizeEngine: @unchecked Sendable {
         // 1. Gyroflow
         if plan.stabilize && !reuseStaging, case .ready(let gyroflow, _)? = context.gyroflow {
             let target = plan.lut != nil ? plan.staging : plan.partial
+            if plan.lut != nil { try? plan.stagingRecipe(settings).write(to: plan.stagingRecipeFile, atomically: true, encoding: .utf8) }
             let preset = StabilizeCommands.presetValue(maxZoom: settings.maxZoom, readoutTime: settings.readoutTime)
             let arguments = StabilizeCommands.gyroflowArguments(
                 source: job.source.url, target: target, staging: plan.lut != nil, codec: settings.codec,
@@ -382,7 +404,11 @@ public final class StabilizeEngine: @unchecked Sendable {
         } catch {
             return finish(.failed("成片无法改成正式文件名：\(error.localizedDescription)"))
         }
-        if plan.stabilize && plan.lut != nil { try? FileManager.default.removeItem(at: plan.staging) }
+        try? plan.recipe(settings).write(to: plan.recipeFile, atomically: true, encoding: .utf8)
+        if plan.stabilize && plan.lut != nil {
+            try? FileManager.default.removeItem(at: plan.staging)
+            try? FileManager.default.removeItem(at: plan.stagingRecipeFile)
+        }
 
         var warnings: [String] = []
         if let warning = await writeCreationDate(plan, exiftool: context.exiftool) { warnings.append(warning) }

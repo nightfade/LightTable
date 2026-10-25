@@ -69,6 +69,12 @@ public enum MediaScanner {
     public static let excludedFolderNames: Set<String> = [
         "LightTable 增稳", "LightTable 高光", "LightTable 日志", "TravelCut 高光片段", "gyroflow_stabilized", "_runs",
     ]
+    /// LightTable's and TravelCut's result folders, including numbered ones like `LightTable 高光 2`.
+    public static func isOwnOutput(_ name: String) -> Bool {
+        excludedFolderNames.contains(name)
+            || ["LightTable 高光", "LightTable 增稳", "LightTable 日志", "TravelCut 高光片段"].contains { name.hasPrefix($0 + " ") }
+    }
+
     /// Brands whose cameras can record log without a marker we know how to read. Their unmarked
     /// footage is "未识别" instead of being assumed to be normal 709.
     static let logCapableBrands = ["panasonic", "fujifilm", "canon", "nikon", "dji", "blackmagic", "sony", "z cam",
@@ -85,7 +91,7 @@ public enum MediaScanner {
         for case let url as URL in enumerator {
             let values = try? url.resourceValues(forKeys: Set(keys))
             if values?.isDirectory == true {
-                if excludedFolderNames.contains(url.lastPathComponent) { enumerator.skipDescendants() }
+                if isOwnOutput(url.lastPathComponent) { enumerator.skipDescendants() }
                 continue
             }
             guard values?.isRegularFile == true, !url.lastPathComponent.hasPrefix("._") else { continue }

@@ -19,6 +19,9 @@ private func testClassify() {
     expect(MediaScanner.classify(gamma: nil, transfer: nil, brand: "Panasonic") == .unknown, "Panasonic without marker is unknown")
     expect(MediaScanner.classify(gamma: nil, transfer: nil, brand: "ZV-E10") == .unknown, "Sony clip without XML is unknown")
     expect(MediaScanner.classify(gamma: nil, transfer: nil, brand: nil) == .rec709, "unbranded defaults to 709")
+    expect(MediaScanner.isOwnOutput("LightTable 高光 2"), "numbered highlight folders are skipped")
+    expect(MediaScanner.isOwnOutput("TravelCut 高光片段 3"), "numbered TravelCut folders are skipped")
+    expect(!MediaScanner.isOwnOutput("LightTable 高光片段素材"), "only exact or numbered names count")
 }
 
 private func script(_ name: String, _ body: String) -> URL {

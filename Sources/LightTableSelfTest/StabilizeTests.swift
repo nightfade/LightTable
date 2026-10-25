@@ -644,6 +644,25 @@ func testLUTOnlyEndToEnd(ffmpeg: URL) async {
     if let (r, g, b) = centerRGBFile(out10, ffmpeg: ffmpeg, folder: folder) {
         expect(near(r, 200, 4) && near(g, 200, 4) && near(b, 200, 4), "identity LUT keeps levels: (\(r), \(g), \(b))")
     }
+
+    // Same settings again → already done; another LUT → redone with the new look.
+    let again = await StabilizeEngine(settings: settings).run([
+        StabilizeJob(source: video8, profile: .rec709, stabilize: true, lut: halveGreen),
+    ]) { _ in }
+    expect(again.results.map(\.status) == [.alreadyDone], "unchanged settings reuse the final: \(again.results.map(\.status))")
+    let changed = await StabilizeEngine(settings: settings).run([
+        StabilizeJob(source: video8, profile: .rec709, stabilize: true, lut: identity),
+    ]) { _ in }
+    expect(changed.results.map(\.status) == [.done], "a different LUT re-renders: \(changed.results.map(\.status))")
+    if let (r, g, b) = centerRGBFile(out8, ffmpeg: ffmpeg, folder: folder) {
+        expect(near(r, 200, 4) && near(g, 200, 4) && near(b, 200, 4), "re-render uses the new LUT: (\(r), \(g), \(b))")
+    }
+
+    // A stop() that lands before run() starts still stops the batch.
+    let early = StabilizeEngine(settings: settings)
+    early.stop()
+    let stoppedEarly = await early.run([StabilizeJob(source: video10, profile: .rec709, stabilize: false, lut: halveGreen)]) { _ in }
+    expect(stoppedEarly.stopped, "stop before run is honoured")
 }
 
 func testLUTPreview(ffmpeg: URL) async {

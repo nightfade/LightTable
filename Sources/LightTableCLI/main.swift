@@ -13,7 +13,7 @@ let usage = """
   scan <文件夹>                         列出视频（机型、画面类型、能否增稳）和照片数量
   gyroflow                              检查 Gyroflow 是否可用
   tools                                 列出实际使用的 ffmpeg、ffprobe、exiftool 和 Gyroflow
-  stabilize <文件夹> [--lut 文件.cube] [--lut-for 画面=文件.cube ...] [--no-stabilize]
+  stabilize <文件夹> [--lut 文件.cube（只套 Log 画面）] [--lut-for 画面=文件.cube ...] [--no-stabilize]
             [--output 文件夹] [--max-zoom 117.6] [--readout-time 15.6] [--dry-run]
                                         增稳调色，结果在 <输出>/LightTable 增稳/
   highlights <文件夹> [--output 文件夹] [--themes 自然景观,人物互动] [--fast-only] [--after-stabilize]
@@ -41,10 +41,14 @@ struct Arguments {
     var options: [String: [String]] = [:]
     var flags: Set<String> = []
 
-    init(_ raw: ArraySlice<String>, valued: Set<String>) {
+    /// `valued` options take a value; `flags` are the switches this command knows. Anything else
+    /// stops with an error, so a typo like `--dryrun` cannot start a real run.
+    init(_ raw: ArraySlice<String>, valued: Set<String>, flags known: Set<String> = []) {
         var iterator = raw.makeIterator()
         while let argument = iterator.next() {
             if argument.hasPrefix("--") {
+                if argument.contains("=") { fail("请写成「\(argument.replacingOccurrences(of: "=", with: " "))」，选项和值之间用空格") }
+                guard valued.contains(argument) || known.contains(argument) else { fail("不认识的选项 \(argument)\n\n\(usage)") }
                 if valued.contains(argument) {
                     guard let value = iterator.next() else { fail("\(argument) 缺少值") }
                     options[argument, default: []].append(value)
@@ -116,7 +120,8 @@ case "gyroflow":
     }
 
 case "stabilize":
-    let arguments = Arguments(rest, valued: ["--lut", "--lut-for", "--output", "--max-zoom", "--readout-time"])
+    let arguments = Arguments(rest, valued: ["--lut", "--lut-for", "--output", "--max-zoom", "--readout-time"],
+                              flags: ["--no-stabilize", "--dry-run"])
     let folder = arguments.folder()
     let output = arguments.value("--output").map { URL(fileURLWithPath: $0).standardizedFileURL } ?? folder
     var luts: [ColorProfile: URL] = [:]
@@ -132,7 +137,7 @@ case "stabilize":
     if case .ready(let executable, _) = status { gyroflow = executable }
     let wantStabilize = !arguments.flags.contains("--no-stabilize")
     let jobs = scan.videos.compactMap { video -> StabilizeJob? in
-        let lut = luts[video.detectedProfile] ?? defaultLUT
+        let lut = luts[video.detectedProfile] ?? (video.detectedProfile.isLog ? defaultLUT : nil)
         let stabilize = wantStabilize && video.canStabilize && gyroflow != nil
         guard stabilize || lut != nil else { return nil }
         return StabilizeJob(source: video, profile: video.detectedProfile, stabilize: stabilize, lut: lut)
@@ -170,7 +175,7 @@ case "stabilize":
     exit(failed > 0 || summary.stopped ? 1 : 0)
 
 case "highlights":
-    let arguments = Arguments(rest, valued: ["--output", "--themes"])
+    let arguments = Arguments(rest, valued: ["--output", "--themes"], flags: ["--fast-only", "--after-stabilize"])
     let folder = arguments.folder()
     let output = arguments.value("--output").map { URL(fileURLWithPath: $0).standardizedFileURL }
         ?? folder.appendingPathComponent("LightTable 高光", isDirectory: true)
@@ -203,7 +208,8 @@ case "highlights":
     }
 
 case "photos":
-    let arguments = Arguments(rest, valued: ["--themes"])
+    let arguments = Arguments(rest, valued: ["--themes"],
+                              flags: ["--fast-only", "--dry-run", "--stars", "--online-places", "--export-features", "--debug-log"])
     let configuration = PhotoCullConfiguration(
         inputFolder: arguments.folder(), selectedThemes: themes(arguments.value("--themes")),
         useQwen: !arguments.flags.contains("--fast-only"), writeRatings: !arguments.flags.contains("--dry-run"),
@@ -219,7 +225,8 @@ case "photos":
     }
 
 case "habits":
-    let arguments = Arguments(rest, valued: ["--content", "--exclude-dir", "--output"])
+    let arguments = Arguments(rest, valued: ["--content", "--exclude-dir", "--output"],
+                              flags: ["--include-exports", "--include-phones"])
     let folder = arguments.folder()
     var options = HabitsOptions(root: folder, outputHTML: arguments.value("--output").map { URL(fileURLWithPath: $0) }
         ?? folder.appendingPathComponent("LightTable 拍摄习惯.html"))

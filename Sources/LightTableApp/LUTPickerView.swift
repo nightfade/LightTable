@@ -196,6 +196,7 @@ struct LUTPickerView: View {
     private func loadFrame() async {
         guard let group, !group.videos.isEmpty else { return }
         let video = group.videos[min(state.sampleIndex, group.videos.count - 1)]
+        state.gradingTask?.cancel()
         state.frame = nil
         state.graded = [:]
         state.failed = []
@@ -225,7 +226,8 @@ struct LUTPickerView: View {
                 }
                 for _ in 0..<3 { add() }
                 for await (lut, image) in group {
-                    if Task.isCancelled { break }
+                    // A result graded from a previous sample frame is dropped.
+                    if Task.isCancelled || state.frame != frame { break }
                     if let image { state.graded[lut] = image } else { state.failed.insert(lut) }
                     add()
                 }
