@@ -283,6 +283,18 @@ extension ExportedClip {
 }
 
 public enum HighlightRecovery {
+    /// True when `configuration.outputFolder` holds a checkpoint this exact job can continue from.
+    public static func canResume(_ configuration: JobConfiguration) -> Bool {
+        SelectionCheckpointStore.loadValid(for: configuration) != nil
+    }
+
+    /// True when the folder holds a checkpoint or finished report from some job, so a different
+    /// job must use another folder.
+    public static func isUsed(_ outputFolder: URL) -> Bool {
+        SelectionCheckpointStore.exists(in: outputFolder)
+            || FileManager.default.fileExists(atPath: outputFolder.appendingPathComponent("selection.json").path)
+    }
+
     public static func resumableOutputFolder(
         in inputFolder: URL,
         selectedThemes: Set<HighlightTheme>,
@@ -299,7 +311,7 @@ public enum HighlightRecovery {
             return nil
         }
         let candidates = children.filter { url in
-            guard url.lastPathComponent.lowercased().hasPrefix("travelcut 高光片段"),
+            guard url.lastPathComponent.lowercased().hasPrefix("travelcut 高光片段") || url.lastPathComponent.lowercased().hasPrefix("lighttable 高光"),
                   (try? url.resourceValues(forKeys: keys).isDirectory) == true,
                   !FileManager.default.fileExists(
                     atPath: url.appendingPathComponent("selection.json").path
