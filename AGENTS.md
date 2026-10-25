@@ -26,7 +26,7 @@
 | `Sources/LightTableSelfTest` | 自测：kit / stabilize / habits，可单独跑 |
 | `Sources/TravelCutSelfTest` | 迁入的 TravelCut 自测 |
 | `reference/` | 三个旧工具的原始代码与 README，改写时的对照基准，不参与构建 |
-| `scripts/` | `build-ffmpeg-lgpl.sh`、`build-app.sh` |
+| `scripts/` | `build-ffmpeg-lgpl.sh`、`build-app.sh`、`package-release.sh`、`make-icon.sh`（图标由 `make-icon.swift` 代码绘制） |
 
 ## 3. 关键实现事实
 
@@ -132,4 +132,4 @@ LIGHTTABLE_SNAPSHOT_LUTS=<LUT 文件夹> [LIGHTTABLE_SNAPSHOT_AUTORUN=1] .build/
 - 时间估算按 CPU 粗估（Gyroflow 2 倍实时、LUT 1.5 倍），需在正常 App（GPU）里校准
 - 松下 V-Log 的识别：读不到时归「未识别」，由使用者按机型归组
 - 公开发布：Developer ID 签名与公证、MobileCLIP 权重许可（仅研究用途）复核、随附 LGPL 源码声明
-- GitHub：2026-10-25 已推到 https://github.com/nightfade/LightTable （公开）；v0.1.0 安装包已作为预发布 Release 上传（SHA-256 52526e00…，已下载核对）；三个旧仓库（TravelCut、batch-gyroflow、photo-habits）已于 2026-10-25 加「已并入」说明并归档为只读
+- GitHub：2026-10-25 已推到 https://github.com/nightfade/LightTable （公开）；v0.1.0 安装包已作为预发布 Release 上传（SHA-256 983ce649…，含新图标，已经 API 下载核对）；三个旧仓库（TravelCut、batch-gyroflow、photo-habits）已于 2026-10-25 加「已并入」说明并归档为只读
