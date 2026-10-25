@@ -15,8 +15,8 @@ let usage = """
   stabilize <文件夹> [--lut 文件.cube] [--lut-for 画面=文件.cube ...] [--no-stabilize]
             [--output 文件夹] [--max-zoom 117.6] [--readout-time 15.6] [--dry-run]
                                         增稳调色，结果在 <输出>/LightTable 增稳/
-  highlights <文件夹> [--output 文件夹] [--themes 自然景观,人物互动] [--fast-only]
-                                        挑视频高光
+  highlights <文件夹> [--output 文件夹] [--themes 自然景观,人物互动] [--fast-only] [--after-stabilize]
+                                        挑视频高光；--after-stabilize 用 LightTable 增稳/ 里的成片代替原片
   photos <文件夹> [--fast-only] [--dry-run] [--stars] [--online-places] [--themes ...]
                                         照片分组（写进照片元数据）
   habits <文件夹> [--content auto|clip|meta] [--include-exports] [--include-phones]
@@ -167,12 +167,24 @@ case "highlights":
     let output = arguments.value("--output").map { URL(fileURLWithPath: $0).standardizedFileURL }
         ?? folder.appendingPathComponent("LightTable 高光", isDirectory: true)
     let scan = await scanFolder(folder)
+    // Same hand-over as the App: stabilised outputs replace their originals, dates come from the
+    // originals (Gyroflow keeps only UTC), and selection.json records the original.
+    let stabilized = arguments.flags.contains("--after-stabilize")
+        ? StabilizedOutputs.load(outputRoot: folder.appendingPathComponent("LightTable 增稳", isDirectory: true)) : [:]
+    if arguments.flags.contains("--after-stabilize") { say("使用增稳后的视频 \(stabilized.count) 段") }
+    var files: [URL] = []
     var dates: [String: String] = [:]
-    for video in scan.videos { if let date = video.creationDate { dates[video.url.standardizedFileURL.path] = date } }
+    var originals: [String: String] = [:]
+    for video in scan.videos {
+        let file = stabilized[video.url.standardizedFileURL] ?? video.url
+        files.append(file)
+        if let date = video.creationDate { dates[file.standardizedFileURL.path] = date }
+        if file != video.url { originals[file.standardizedFileURL.path] = video.url.path }
+    }
     let configuration = JobConfiguration(inputFolder: folder, outputFolder: output,
                                          useDeepAnalysis: !arguments.flags.contains("--fast-only"),
                                          selectedThemes: themes(arguments.value("--themes")),
-                                         inputFiles: scan.videos.map(\.url), captureDates: dates)
+                                         inputFiles: files, captureDates: dates, originalSources: originals)
     do {
         let summary = try await HighlightEngine().run(configuration: configuration) { update in
             say("[\(Int(update.fraction * 100))%] \(update.message)")
