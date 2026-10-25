@@ -1,0 +1,470 @@
+import CoreGraphics
+import Foundation
+import Vision
+
+public struct PhotoCullConfiguration: Sendable {
+    public let inputFolder: URL
+    public let selectedThemes: Set<HighlightTheme>
+    public let useQwen: Bool
+    /// false: only write the report, leave every photo and sidecar untouched.
+    public let writeRatings: Bool
+    /// Also write stars (best of each group 3, close alternates 2, junk rejected). Off by default:
+    /// checked against a 9,000-photo trip, the stars were barely better than random at predicting
+    /// the user's picks, so the default is organising only (group title and keywords).
+    public let writeStars: Bool
+    /// Write MobileCLIP embeddings to "TravelCut 照片特征.json" (also on with TRAVELCUT_EXPORT_FEATURES=1).
+    public let exportFeatures: Bool
+    /// Write debug output to "TravelCut 调试日志.txt" in the photo folder.
+    public let debugLog: Bool
+    /// Ask Apple's geocoding service for landmark-level places (sends photo coordinates to Apple).
+    public let onlinePlaces: Bool
+
+    public init(
+        inputFolder: URL,
+        selectedThemes: Set<HighlightTheme> = HighlightTheme.defaultSelection,
+        useQwen: Bool = true,
+        writeRatings: Bool = true,
+        writeStars: Bool = false,
+        exportFeatures: Bool = false,
+        debugLog: Bool = false,
+        onlinePlaces: Bool = false
+    ) {
+        self.inputFolder = inputFolder
+        self.selectedThemes = selectedThemes
+        self.useQwen = useQwen
+        self.writeRatings = writeRatings
+        self.writeStars = writeStars
+        self.exportFeatures = exportFeatures
+        self.debugLog = debugLog
+        self.onlinePlaces = onlinePlaces
+    }
+}
+
+public struct PhotoCullSummary: Sendable {
+    public let reportFile: URL
+    public let photoCount: Int
+    public let groupCount: Int
+    public let starredCount: Int          // 2 stars or more
+    public let rejectedCount: Int
+    public let skippedUserMarked: Int     // already rated or labelled by the user
+    public let visionFailures: Int        // photos analysed with fallbacks because Vision failed
+    public let qwenFailures: Int          // groups Qwen could not judge (error or 3-minute timeout)
+    public let notWritable: Int           // formats that hold no metadata Bridge reads (e.g. PNG), or exiftool missing
+    public let exiftoolMissing: Bool
+    public let wroteRatings: Bool         // wrote anything into the photos (false: dry run)
+    public let wroteStars: Bool
+    public let featuresFile: URL?
+    public let onlinePlaceFailures: Int   // spots the online lookup could not reach; they kept the offline name
+}
+
+/// Groups a trip's photos, picks the best of each group with Qwen's help and writes the result
+/// into the RAW sidecars as star ratings, a "组 0042 · 第 1/5" title and keywords for Bridge.
+public final class PhotoCullEngine: @unchecked Sendable {
+    public static let reportName = "TravelCut 照片整理报告.json"
+    public static let featuresName = "TravelCut 照片特征.json"
+    public static let debugLogName = "TravelCut 调试日志.txt"
+
+    public init() {}
+
+    public func run(
+        configuration: PhotoCullConfiguration,
+        progress: @Sendable @escaping (ProgressUpdate) -> Void = { _ in }
+    ) async throws -> PhotoCullSummary {
+        guard !configuration.selectedThemes.isEmpty else {
+            throw TravelCutError.invalidArguments("请至少选择一种想保留的内容")
+        }
+        if configuration.debugLog {
+            TravelCutLog.start(at: configuration.inputFolder.appendingPathComponent(Self.debugLogName))
+        }
+        defer { if configuration.debugLog { TravelCutLog.stop() } }
+        progress(ProgressUpdate(fraction: 0.01, message: "正在查找照片…"))
+        let items = try PhotoDiscovery.discover(in: configuration.inputFolder)
+        guard !items.isEmpty else { throw TravelCutError.invalidArguments("所选文件夹中没有找到照片。") }
+
+        progress(ProgressUpdate(fraction: 0.02, message: "正在准备 MobileCLIP 本地模型…"))
+        _ = try await ModelInstaller(ModelInstaller.mobileCLIP).install { value in
+            progress(ProgressUpdate(
+                fraction: 0.02,
+                message: value < 1 ? "首次使用正在下载 MobileCLIP 模型 \(Int(value * 100))%…" : "MobileCLIP 已就绪"
+            ))
+        }
+
+        let analyzer = PhotoAnalyzer(selectedThemes: configuration.selectedThemes)
+        let cache = PhotoCache(root: configuration.inputFolder)
+        let photoKeys = items.map { cache?.key(for: $0) ?? $0.primary.path }
+        var metrics: [PhotoMetrics?] = []
+        var reused = 0
+        metrics.reserveCapacity(items.count)
+        for (index, item) in items.enumerated() {
+            try Task.checkCancellation()
+            if let cached = cache?.metrics(for: photoKeys[index]) {
+                metrics.append(analyzer.metrics(from: cached))
+                reused += 1
+            } else {
+                // Drain autoreleased image buffers every photo. Without this, a 9,000-photo run exhausted
+                // IOSurface memory after about 5,000 photos and every later Vision request failed silently.
+                let fresh = autoreleasepool { PhotoDiscovery.preview(of: item.primary).map(analyzer.analyze) }
+                if let fresh { cache?.store(fresh, for: photoKeys[index]) }
+                metrics.append(fresh)
+            }
+            if index % 10 == 0 || index == items.count - 1 {
+                progress(ProgressUpdate(
+                    fraction: 0.03 + 0.45 * Double(index + 1) / Double(items.count),
+                    message: reused > 0
+                        ? "正在分析照片 \(index + 1)/\(items.count)（\(reused) 张用上次的结果）…"
+                        : "正在分析照片 \(index + 1)/\(items.count)…"
+                ))
+            }
+        }
+
+        progress(ProgressUpdate(fraction: 0.49, message: "正在把连拍和相似照片分组…"))
+        let groups = PhotoGrouper.group(
+            times: items.map(\.capturedAt),
+            folders: items.map { $0.primary.deletingLastPathComponent().path },
+            junk: metrics.map { $0?.isJunk ?? true }
+        ) { i, j in
+            guard let left = metrics[i]?.featurePrint, let right = metrics[j]?.featurePrint else { return nil }
+            var distance: Float = 0
+            guard (try? left.computeDistance(&distance, to: right)) != nil else { return nil }
+            if TravelCutLog.isEnabled {
+                let gap = items[j].capturedAt.timeIntervalSince(items[i].capturedAt)
+                TravelCutLog.write(Data(String(
+                    format: "GROUP %@ -> %@ gap=%.2fs distance=%.3f\n",
+                    items[i].primary.lastPathComponent, items[j].primary.lastPathComponent, gap, distance
+                ).utf8))
+            }
+            return distance
+        }
+
+        var featuresURL: URL?
+        if configuration.exportFeatures || ProcessInfo.processInfo.environment["TRAVELCUT_EXPORT_FEATURES"] == "1" {
+            // MobileCLIP image embeddings, for checking whether the user's taste can be learned.
+            // Written before Qwen runs, so a long run that gets stopped still leaves the features.
+            let url = configuration.inputFolder.appendingPathComponent(Self.featuresName)
+            var rows: [[String: Any]] = []
+            for (groupIndex, members) in groups.enumerated() {
+                for index in members {
+                    guard let embedding = metrics[index]?.embedding else { continue }
+                    rows.append([
+                        "file": items[index].primary.path,
+                        "group": groupIndex + 1,
+                        "face": metrics[index]?.faceSharpness != nil,
+                        "embedding": embedding.map { (Double($0) * 10_000).rounded() / 10_000 },
+                    ])
+                }
+            }
+            try JSONSerialization.data(withJSONObject: rows).write(to: url, options: .atomic)
+            featuresURL = url
+        }
+
+        // Places: GPS from the camera, else borrowed from the nearest geotagged photo in time.
+        var places = [(Place, PlaceInference.Source)?](repeating: nil, count: items.count)
+        var onlinePlaceFailures = 0
+        if items.contains(where: { $0.latitude != nil }) {
+            do {
+                let geo = try GeoPlaces.load { message in progress(ProgressUpdate(fraction: 0.495, message: message)) }
+                var known = items.map { item in
+                    item.latitude.flatMap { lat in item.longitude.flatMap { geo.place(latitude: lat, longitude: $0) } }
+                }
+                var online = Set<Int>()
+                if configuration.onlinePlaces {
+                    (online, onlinePlaceFailures) = await refineOnline(
+                        items: items, known: &known, cache: cache, progress: progress
+                    )
+                }
+                places = PlaceInference.infer(times: items.map(\.capturedAt), known: known)
+                for index in online { places[index] = places[index].map { ($0.0, .online) } }
+            } catch {
+                // Place names are a bonus; never fail the run over them.
+                TravelCutLog.write(Data("地点查询不可用：\(error.localizedDescription)\n".utf8))
+            }
+        }
+
+        var judgements = [PhotoGroupJudgement?](repeating: nil, count: groups.count)
+        var qwenFailures = 0
+        if configuration.useQwen {
+            let qwen = QwenVideoAnalyzer()
+            progress(ProgressUpdate(fraction: 0.50, message: "正在准备 Qwen3-VL-4B 本地模型…"))
+            try await qwen.load { value in
+                progress(ProgressUpdate(
+                    fraction: 0.50 + value * 0.04,
+                    message: value < 1 ? "首次使用正在下载本地模型 \(Int(value * 100))%…" : "Qwen3-VL-4B 已就绪"
+                ))
+            }
+            let temporary = FileManager.default.temporaryDirectory
+                .appendingPathComponent("TravelCut-Photos-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: temporary) }
+
+            var failures = 0
+            var attempts = 0
+            var lastError: Error?
+            for (groupIndex, members) in groups.enumerated() {
+                try Task.checkCancellation()
+                // Announce the group before the model runs, so a slow first group does not look stuck.
+                progress(ProgressUpdate(
+                    fraction: 0.54 + 0.42 * Double(groupIndex) / Double(groups.count),
+                    message: "Qwen 正在挑选第 \(groupIndex + 1)/\(groups.count) 组…"
+                ))
+                // Up to three of the technically best usable frames, best first: if the model leans
+                // towards the first image, it leans towards the technical pick. Groups with a single
+                // usable frame are skipped: there is nothing to choose, and on a 9,000-photo trip they
+                // were two thirds of all calls. MobileCLIP supplies their theme.
+                let candidates = Array(members.indices
+                    .filter { metrics[members[$0]].map { !$0.isJunk } ?? false }
+                    .sorted { (metrics[members[$0]]?.pickScore ?? 0) > (metrics[members[$1]]?.pickScore ?? 0) }
+                    .prefix(3))
+                let groupPlace = candidates.first.flatMap { places[members[$0]]?.0.text }
+                let groupKey = PhotoCache.groupKey(
+                    photoKeys: candidates.map { photoKeys[members[$0]] }, themes: configuration.selectedThemes,
+                    place: groupPlace
+                )
+                if candidates.count >= 2, let cached = cache?.judgement(for: groupKey) {
+                    judgements[groupIndex] = cached
+                } else if candidates.count >= 2 {
+                    var files: [URL] = []
+                    for (position, member) in candidates.enumerated() {
+                        let url = temporary.appendingPathComponent("g\(groupIndex)-\(position + 1).jpg")
+                        let written = autoreleasepool {
+                            PhotoDiscovery.preview(of: items[members[member]].primary)
+                                .map { PhotoDiscovery.writeJPEG($0, to: url) } ?? false
+                        }
+                        if written { files.append(url) }
+                    }
+                    if files.count == candidates.count {
+                        attempts += 1
+                        do {
+                            let result = try await qwen.judgePhotoGroup(
+                                images: files, selectedThemes: configuration.selectedThemes, place: groupPlace
+                            )
+                            let judgement = PhotoGroupJudgement(
+                                bestMember: result.bestMember.map { candidates[$0] },
+                                keep: result.keep,
+                                highlightScore: result.highlightScore,
+                                theme: result.theme,
+                                label: result.label,
+                                reason: result.reason
+                            )
+                            judgements[groupIndex] = judgement
+                            cache?.store(judgement, for: groupKey)
+                        } catch {
+                            failures += 1
+                            lastError = error
+                        }
+                    }
+                    files.forEach { try? FileManager.default.removeItem(at: $0) }
+                }
+            }
+            if attempts > 0, failures == attempts, let lastError { throw lastError }
+            qwenFailures = failures
+        }
+
+        progress(ProgressUpdate(
+            fraction: 0.97,
+            message: configuration.writeRatings ? "正在写入分组和关键字…" : "试运行：只生成报告，不写入照片…"
+        ))
+        let exiftool = EmbeddedMetadataWriter.findExiftool()
+        var embeddedJobs: [EmbeddedMetadataWriter.Job] = []
+        var report: [PhotoCullReport.Group] = []
+        var starred = 0, rejected = 0, skipped = 0, notWritable = 0
+        for (groupIndex, members) in groups.enumerated() {
+            let number = groupIndex + 1
+            let judgement = judgements[groupIndex]
+            let result = PhotoRater.rate(
+                pickScores: members.map { metrics[$0]?.pickScore ?? 0 },
+                junk: members.map { metrics[$0]?.isJunk ?? true },
+                judgement: judgement
+            )
+            let bestTheme = judgement?.theme ?? result.best.flatMap { metrics[members[$0]]?.theme }
+            var rows: [PhotoCullReport.Photo] = []
+            for (position, index) in members.enumerated() {
+                let item = items[index]
+                let rating = result.ratings[position]
+                // With stars the title shows the pick order; without, the position in time.
+                let rank = configuration.writeStars ? (result.order.firstIndex(of: position) ?? position) + 1 : position + 1
+                var keywords = [["TravelCut", "组", String(format: "组 %04d", number)]]
+                if let bestTheme { keywords.append(["TravelCut", "主题", bestTheme.rawValue]) }
+                // Qwen's label describes the whole group, so every member carries it.
+                let label = judgement?.label.flatMap { $0.isEmpty ? nil : $0 }
+                if let label { keywords.append(["TravelCut", "标签", label]) }
+                if let place = places[index]?.0 { keywords.append(place.keywordPath) }
+                if let reason = metrics[index]?.junkReason { keywords.append(["TravelCut", "可能是废片", reason]) }
+                var outcome = "试运行"
+                let fields = XMPSidecarWriter.Fields(
+                    rating: configuration.writeStars ? rating : nil,
+                    title: PhotoRater.title(group: number, rank: rank, size: members.count, label: label),
+                    keywords: keywords
+                )
+                if let raw = item.sidecarTarget {
+                    if configuration.writeRatings {
+                        let written = try XMPSidecarWriter.apply(fields, to: XMPSidecarWriter.sidecarURL(for: raw))
+                        outcome = written == .written ? "已写入" : "跳过：已有你的标记"
+                        if written == .skippedUserMarks { skipped += 1 }
+                    }
+                } else if let file = item.embeddedTarget {
+                    if !configuration.writeRatings {
+                        outcome = "试运行"
+                    } else if exiftool == nil {
+                        outcome = "跳过：写入 JPEG 需要 exiftool"
+                        notWritable += 1
+                    } else {
+                        embeddedJobs.append(EmbeddedMetadataWriter.Job(file: file, fields: fields))
+                        outcome = "待写入"
+                    }
+                } else {
+                    outcome = "跳过：这种格式不支持写入"
+                    notWritable += 1
+                }
+                if rating >= 2 { starred += 1 }
+                if rating < 0 { rejected += 1 }
+                let m = metrics[index]
+                rows.append(PhotoCullReport.Photo(
+                    file: item.primary.path, capturedAt: item.capturedAt, rating: rating, rank: rank,
+                    pickScore: m.map { ($0.pickScore * 1000).rounded() / 1000 },
+                    eyesClosed: m?.eyesClosed, junk: m?.isJunk ?? true, outcome: outcome,
+                    junkReason: m == nil ? "无法读取" : m?.junkReason,
+                    sharpness: m.map { ($0.sharpness * 1000).rounded() / 1000 },
+                    faceSharpness: m?.faceSharpness.map { ($0 * 1000).rounded() / 1000 },
+                    brightness: m.map { ($0.brightness * 1000).rounded() / 1000 },
+                    aesthetic: m.map { ($0.aesthetic * 1000).rounded() / 1000 },
+                    utility: m?.isUtility,
+                    clipLabel: m?.semanticLabel,
+                    place: places[index]?.0.text,
+                    placeSource: places[index]?.1.rawValue,
+                    previewSize: m?.previewSize,
+                    visionFailed: m?.visionFailed
+                ))
+            }
+            report.append(PhotoCullReport.Group(
+                group: number, theme: bestTheme?.rawValue, judgement: judgement, photos: rows
+            ))
+        }
+
+        if let exiftool, !embeddedJobs.isEmpty {
+            progress(ProgressUpdate(fraction: 0.98, message: "正在写入 \(embeddedJobs.count) 张 JPEG…"))
+            let outcomes = try EmbeddedMetadataWriter.apply(embeddedJobs, exiftool: exiftool)
+            for groupIndex in report.indices {
+                for photoIndex in report[groupIndex].photos.indices where report[groupIndex].photos[photoIndex].outcome == "待写入" {
+                    let url = URL(fileURLWithPath: report[groupIndex].photos[photoIndex].file)
+                    let text: String
+                    switch outcomes[url] {
+                    case .written?: text = "已写入"
+                    case .skippedUserMarks?: text = "跳过：已有你的标记"; skipped += 1
+                    default: text = "写入失败"
+                    }
+                    report[groupIndex].photos[photoIndex].outcome = text
+                }
+            }
+        }
+
+        let reportURL = configuration.inputFolder.appendingPathComponent(Self.reportName)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(PhotoCullReport(
+            generatedAt: Date(),
+            inputFolder: configuration.inputFolder.path,
+            selectedThemes: HighlightTheme.allCases.filter(configuration.selectedThemes.contains).map(\.rawValue),
+            usedQwen: configuration.useQwen,
+            wroteRatings: configuration.writeRatings,
+            wroteStars: configuration.writeStars,
+            photoCount: items.count,
+            groupCount: groups.count,
+            groups: report
+        )).write(to: reportURL, options: .atomic)
+        progress(ProgressUpdate(fraction: 1, message: "完成"))
+
+        return PhotoCullSummary(
+            reportFile: reportURL, photoCount: items.count, groupCount: groups.count,
+            starredCount: starred, rejectedCount: rejected, skippedUserMarked: skipped,
+            visionFailures: metrics.filter { $0?.visionFailed ?? false }.count,
+            qwenFailures: qwenFailures,
+            notWritable: notWritable, exiftoolMissing: exiftool == nil && configuration.writeRatings,
+            wroteRatings: configuration.writeRatings, wroteStars: configuration.writeRatings && configuration.writeStars,
+            featuresFile: featuresURL,
+            onlinePlaceFailures: onlinePlaceFailures
+        )
+    }
+
+    /// Replaces offline places with Apple's answer for photos that have their own GPS, one request
+    /// per ~110 m spot. Returns the photos refined and the number of spots that could not be looked up.
+    private func refineOnline(
+        items: [PhotoItem], known: inout [Place?], cache: PhotoCache?,
+        progress: @Sendable @escaping (ProgressUpdate) -> Void
+    ) async -> (Set<Int>, Int) {
+        var spots: [String: [Int]] = [:]
+        var order: [String] = []
+        for (index, item) in items.enumerated() {
+            guard let lat = item.latitude, let lon = item.longitude else { continue }
+            let key = OnlinePlaces.key(latitude: lat, longitude: lon)
+            if spots[key] == nil { order.append(key) }
+            spots[key, default: []].append(index)
+        }
+        let geocoder = OnlinePlaces()
+        var refined = Set<Int>()
+        var failures = 0
+        var consecutiveFailures = 0
+        for (number, key) in order.enumerated() {
+            let members = spots[key]!
+            var result = cache?.geocode(for: key)
+            if result == nil, consecutiveFailures < 2 {
+                if number % 5 == 0 {
+                    progress(ProgressUpdate(fraction: 0.495, message: "正在在线查询地点 \(number + 1)/\(order.count)…"))
+                }
+                let item = items[members[0]]
+                result = await geocoder.lookup(latitude: item.latitude!, longitude: item.longitude!) {
+                    progress(ProgressUpdate(fraction: 0.495, message: "Apple 限制了查询频率，等待约 1 分钟后继续（\(number + 1)/\(order.count)）…"))
+                }
+                if let result { cache?.store(result, forGeocode: key); consecutiveFailures = 0 } else { consecutiveFailures += 1 }
+            }
+            // Each lookup already waited out one throttling window, so two failures in a row mean offline:
+            // stop asking and let the rest keep offline names.
+            guard let result else { failures += 1; continue }
+            guard let place = OnlinePlaces.merge(offline: known[members[0]], online: result) else { continue }
+            for index in members { known[index] = place; refined.insert(index) }
+        }
+        return (refined, failures)
+    }
+}
+
+struct PhotoCullReport: Codable {
+    struct Photo: Codable {
+        let file: String
+        let capturedAt: Date
+        let rating: Int
+        let rank: Int
+        let pickScore: Double?
+        let eyesClosed: Bool?
+        let junk: Bool
+        var outcome: String
+        // Diagnostics for tuning.
+        let junkReason: String?
+        let sharpness: Double?
+        let faceSharpness: Double?
+        let brightness: Double?
+        let aesthetic: Double?
+        let utility: Bool?
+        let clipLabel: String?
+        let place: String?
+        let placeSource: String?
+        let previewSize: Int?
+        let visionFailed: Bool?
+    }
+
+    struct Group: Codable {
+        let group: Int
+        let theme: String?
+        let judgement: PhotoGroupJudgement?
+        var photos: [Photo]
+    }
+
+    let generatedAt: Date
+    let inputFolder: String
+    let selectedThemes: [String]
+    let usedQwen: Bool
+    let wroteRatings: Bool
+    let wroteStars: Bool
+    let photoCount: Int
+    let groupCount: Int
+    var groups: [Group]
+}

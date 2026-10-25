@@ -23,8 +23,7 @@ LightTable（看片台）是一个 Mac 原生 App，合并 TravelCut、batch-gyr
 | 模块 | 内容 | 来源 |
 |---|---|---|
 | `LightTableKit` | 素材扫描、外部工具调用与进程管理、任务进度、取消与断点、空间预检、模型下载 | 从 TravelCut 抽出 |
-| `Highlights` | 视频高光 | TravelCut 视频模式 |
-| `PhotoGroups` | 照片整理 | TravelCut 照片模式 |
+| `TravelCutCore` | 视频高光、照片整理 | TravelCut 0.8.0 核心整体迁入，只改模型目录、exiftool 查找、文件清单输入与时区 |
 | `Stabilize` | 增稳调色 | batch-gyroflow 改写 |
 | `Habits` | 拍摄习惯 | photo-habits 改写 |
 | `LightTableApp` | SwiftUI 界面 | 新写 |
@@ -43,7 +42,7 @@ LightTable（看片台）是一个 Mac 原生 App，合并 TravelCut、batch-gyr
    - 有视频：预勾挑高光
    - 有照片：预勾照片分组
    - 拍摄习惯：默认不勾
-4. 点开始，按固定顺序执行：增稳调色 → 挑高光 → 照片分组 → 拍摄习惯
+4. 点开始，按固定顺序执行：增稳调色 → 挑高光 → 拍摄习惯 → 照片分组（拍摄习惯必须在照片分组之前，否则会读到照片分组写进去的主题关键字）
 5. 每项结束给「打开结果」：
    - 增稳成片、高光片段：打开文件夹
    - 照片分组：提示去 Bridge 看
@@ -51,7 +50,9 @@ LightTable（看片台）是一个 Mac 原生 App，合并 TravelCut、batch-gyr
 
 ### 结果位置
 
-都在所选文件夹下，原片不动：
+默认在所选文件夹下。所选文件夹只读，或在可移除的存储卡上时，开始前让使用者另选输出位置。
+
+原片像素不动。照片整理会改 JPEG/HEIC/DNG 的元数据（RAW 写旁边的 `.xmp`），这是 TravelCut 的既有行为。
 
 - `LightTable 增稳/`
 - `LightTable 高光/`
@@ -71,19 +72,29 @@ LightTable（看片台）是一个 Mac 原生 App，合并 TravelCut、batch-gyr
 | GeoNames（约 14 MB） | 照片地点 | 同上 |
 
 - 模型放 `~/Library/Application Support/LightTable/Models/`。TravelCut 已下载过的同名模型直接搬过来，不重新下载
-- 拍摄习惯读 EXIF 优先用 ImageIO（含 RAW），读不到的层级关键词、`.xmp` 星级交给 exiftool
+- 拍摄习惯读 EXIF 全部用 exiftool（ImageIO 读不到 LensID、等效焦距、Sony 场景模式、人脸数），与 photo-habits 字段一致
 
 ### Gyroflow 检测（每次增稳前）
 
-1. 查找 `/Applications/Gyroflow.app` 及常见位置
-2. 读签名权限，含 App Store 沙盒则提示换官网版
+1. 查找 `/Applications/Gyroflow.app`、`~/Applications/Gyroflow.app`
+2. 检查 `Contents/_MASReceipt`，存在即 App Store 版，提示换官网版；`--version` 以 SIGTRAP 退出也按 App Store 版处理
 3. 运行 `--version` 确认可调用
 4. 未安装时增稳选项显示「需要先装 Gyroflow」，点开是图示安装说明和官网链接；回到 App 自动重新检测
+
+### 照片关键字命名空间
+
+继续用 `TravelCut|…`，不改成 `LightTable`。已整理过的照片重跑时，旧关键字和星级归属标记 `TravelCut|写入星级|N` 才能被认出和清理。
+
+### 安装与权限
+
+- macOS 15 起右键「打开」不再绕过 Gatekeeper；安装说明写「系统设置 → 隐私与安全性 → 仍要打开」
+- 访问外接盘、桌面、文稿会弹系统权限；临时签名每次重新构建后授权会重置
 
 ### 风险
 
 - macOS 自带 Perl 被标记为将来移除；移除时需连 Perl 一起打包
-- LGPL 版 ffmpeg 需自行编译或找可信预编译版本，一次性工作
+- LGPL 版 ffmpeg 需自行编译或找可信预编译版本，一次性工作；随附 LGPL 源码声明
+- MobileCLIP 权重许可仅限研究用途，公开发布前须复核
 
 ## 3. 增稳调色
 
@@ -96,7 +107,9 @@ LightTable（看片台）是一个 Mac 原生 App，合并 TravelCut、batch-gyr
 | 只调色 | ffmpeg 套 LUT → 成片 |
 
 - 套 LUT 前转 `yuv444p16le`，避免色带
-- 原片的色彩范围、色彩空间、原色、传输特性标记照抄到成片
+- 原片的色彩标记只用来正确解读输入；套 LUT 后成片标为 Rec.709（bt709 原色、传输、矩阵，limited 范围）。只增稳不套 LUT 时照抄原片标记
+- 10 位原片输出 10 位 HEVC（Main10），8 位输出 8 位；不再沿用 batch-gyroflow 固定转 8 位
+- 编码只用 VideoToolbox，去掉 libx264/libx265 回退（需要 GPL 版 ffmpeg）
 - LUT 失败时保留 ProRes 中间文件，只重跑套 LUT
 
 ### 沿用 batch-gyroflow 已验证的 Gyroflow 命令行处理
@@ -110,8 +123,8 @@ LightTable（看片台）是一个 Mac 原生 App，合并 TravelCut、batch-gyr
 
 | 分组 | 识别依据 | 默认 |
 |---|---|---|
-| S-Log2 / S-Log3 | Sony XML `CaptureGammaEquation`（已验证） | 必须选 LUT |
-| V-Log | 未验证；读不到时归「未识别」，按机型记住归组 | 必须选 LUT |
+| S-Log2 / S-Log3 | Sony XML `CaptureGammaEquation`（已验证） | 提示选 LUT；选「不调色」时提醒画面会发灰 |
+| V-Log | 未验证；读不到时归「未识别」，按机型记住归组 | 同上 |
 | HLG | ffprobe 传输特性 `arib-std-b67` | 选 LUT 或不调色 |
 | 普通 709 | 无特殊标记 | 不调色，可选风格 LUT |
 | 未识别 | 读不出 | 使用者归组 |
@@ -129,12 +142,15 @@ LightTable（看片台）是一个 Mac 原生 App，合并 TravelCut、batch-gyr
 
 - `LightTable 增稳/` 下保持原子文件夹结构，文件名不变
 - 成片写回原片的带时区创建时间（Gyroflow 只保留 UTC，已实测）；机型与伽马记入 `LightTable 增稳/对照表.json`
-- 已完整生成的成片跳过
+- ffmpeg 和 Gyroflow 都先写临时文件；ffprobe 校验时长与原片相差不到 1 秒才改成正式文件名。续跑只跳过正式文件
+- 每段开始前重新检查剩余空间，按「成片 + ProRes 中间文件」的峰值估算（4K ProRes 中间文件约每分钟 5 GB）
+- 源盘或输出盘被拔掉时暂停整批并提示接回，不把剩余视频判为失败
 - 开始前按总时长和分辨率估算耗时和空间，不足则拦截并说明差多少
 
 ### 衔接挑高光
 
-- 挑高光的输入：处理过的视频用成片，其余用原片，不重复分析
+- 挑高光的输入：处理过的视频用成片，其余用原片，不重复分析；由 LightTable 传入明确的文件清单，挑高光不再自己扫描文件夹
+- 扫描阶段读到的带时区拍摄时间（Sony XML `CreationDateValue`）一并传给挑高光，原片和成片都用它分天。TravelCut 原来不读 Sony XML，没增稳的 ZV-E10 原片会按 Mac 时区分天
 - `selection.json` 每段记录成片路径和原片路径
 - 挑高光沿用 TravelCut 的内容标签、按天分文件夹和命名规则
 
@@ -163,13 +179,15 @@ LightTable（看片台）是一个 Mac 原生 App，合并 TravelCut、batch-gyr
 - 去重：RAW + JPEG、多处备份只算一张，优先 RAW
 - 默认排除软件导出 JPEG 和手机照片
 - 合并 `.xmp` 星级
-- 6 类题材：人像、街头、风景、城市建筑、动物、静物；依据依次为关键词 → 目录名 → MobileCLIP → 场景模式
+- 关键词分类时忽略 `TravelCut|` 开头的关键词（照片整理写的主题）
+- 6 类题材：人像、街头、风景、城市建筑、动物、静物；依据依次为关键词 → 目录名 → MobileCLIP → 场景模式与人脸
+- MobileCLIP 替换 open_clip ViT-B-32，看图分类的结果与旧版不同，「其他」阈值按 MobileCLIP 重新设定
 - 长焦、35mm 两个专题
 
 输出：
 
 - 自包含 `LightTable 拍摄习惯.html`，不依赖网络，生成后自动打开
-- 页面顶部按题材筛选（对应原 `--category`）
+- 页面顶部按题材单选筛选（全部 + 6 类），每个题材的统计预先生成
 - EXIF 与看图结果缓存在 `.lighttable-cache/`
 
 ## 5. 进程管理、出错与进度
@@ -202,9 +220,9 @@ LightTable（看片台）是一个 Mac 原生 App，合并 TravelCut、batch-gyr
 
 | 阶段 | 内容 | 完成标志 |
 |---|---|---|
-| 1. 底座 + 搬家 | 建仓库；抽出 `LightTableKit`；视频高光与照片整理在新 App 跑通；首页扫描汇总（陀螺仪轨、机型、画面类型） | TravelCut 自测全过；同批素材新旧结果一致 |
+| 1. 底座 + 搬家 | 建仓库；新写 `LightTableKit`（进程管理、工具定位、扫描）；TravelCut 核心作为 `TravelCutCore` 模块整体迁入；首页扫描汇总 | TravelCut 自测全过；重跑不处理自己的输出；照片关键字仍用 `TravelCut|` 命名空间 |
 | 2. 增稳调色 | 改写 batch-gyroflow；进程管理与心跳；Gyroflow 检测引导；分组选 LUT；打包 LGPL ffmpeg | `C0835.MP4` 增稳加调色跑通；四种异常场景界面反应正确；时间与音轨问题有结论 |
-| 3. 拍摄习惯 | 改写 photo-habits，HTML 报告 | 同一文件夹新旧统计数字一致 |
+| 3. 拍摄习惯 | 改写 photo-habits，HTML 报告 | 关闭看图分类时，同一文件夹新旧统计数字一致 |
 | 4. 串联与收尾 | 自动串联、菜单栏进度、导出诊断、打包发布 | 真实旅行文件夹从拖入到出结果不碰终端 |
 
 ## 7. 测试
