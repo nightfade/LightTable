@@ -68,6 +68,14 @@ public struct JobConfiguration: Sendable {
     public let deepCandidateFraction: Double
     public let deepFrameCount: Int
     public let selectedThemes: Set<HighlightTheme>
+    /// Exact videos to analyse. LightTable passes stabilised outputs plus untouched originals;
+    /// nil keeps TravelCut's behaviour of scanning `inputFolder`.
+    public let inputFiles: [URL]?
+    /// Path → creation time with the camera's UTC offset (`2025:10:26 14:10:41-08:00` or ISO 8601),
+    /// read by LightTable from Sony XML or the original clip. Decides the day folder.
+    public let captureDates: [String: String]
+    /// Stabilised file path → original clip path, recorded in selection.json.
+    public let originalSources: [String: String]
 
     public init(
         inputFolder: URL,
@@ -75,14 +83,29 @@ public struct JobConfiguration: Sendable {
         useDeepAnalysis: Bool = true,
         deepCandidateFraction: Double = 0.40,
         deepFrameCount: Int = 10,
-        selectedThemes: Set<HighlightTheme> = HighlightTheme.defaultSelection
+        selectedThemes: Set<HighlightTheme> = HighlightTheme.defaultSelection,
+        inputFiles: [URL]? = nil,
+        captureDates: [String: String] = [:],
+        originalSources: [String: String] = [:]
     ) {
+        self.inputFiles = inputFiles.map { files in
+            files.map(\.standardizedFileURL).sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+        }
+        self.captureDates = captureDates
+        self.originalSources = originalSources
         self.inputFolder = inputFolder
         self.outputFolder = outputFolder
         self.useDeepAnalysis = useDeepAnalysis
         self.deepCandidateFraction = min(1, max(0.05, deepCandidateFraction))
         self.deepFrameCount = min(16, max(6, deepFrameCount))
         self.selectedThemes = selectedThemes
+    }
+}
+
+extension JobConfiguration {
+    func sourceURLs() throws -> [URL] {
+        if let inputFiles { return inputFiles }
+        return try MediaDiscovery.discoverVideos(in: inputFolder, excludingFolders: [outputFolder])
     }
 }
 
@@ -379,6 +402,8 @@ struct ExportedClip: Codable, Sendable {
     let hasAudio: Bool
     let audioLabels: [String]
     let sourceMetadata: [MediaMetadataRecord]
+    /// The camera original when `sourceFile` is a stabilised copy. Absent before LightTable.
+    var originalSourceFile: String? = nil
 }
 
 struct SelectionReport: Codable, Sendable {

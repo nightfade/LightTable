@@ -258,10 +258,7 @@ enum SelectionCheckpointStore {
         _ checkpoint: SelectionCheckpoint,
         configuration: JobConfiguration
     ) -> Bool {
-        guard let urls = try? MediaDiscovery.discoverVideos(
-            in: configuration.inputFolder,
-            excludingFolders: [configuration.outputFolder]
-        ) else {
+        guard let urls = try? configuration.sourceURLs() else {
             return false
         }
         let current = urls.compactMap(SourceSignature.init).sorted { $0.path < $1.path }

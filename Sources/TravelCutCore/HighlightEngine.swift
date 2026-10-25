@@ -27,14 +27,11 @@ public final class HighlightEngine: @unchecked Sendable {
             )
         }
         progress(ProgressUpdate(fraction: 0.01, message: "正在查找视频…"))
-        let urls = try MediaDiscovery.discoverVideos(
-            in: configuration.inputFolder,
-            excludingFolders: [configuration.outputFolder]
-        )
+        let urls = try configuration.sourceURLs()
         guard !urls.isEmpty else { throw TravelCutError.noVideos }
 
         progress(ProgressUpdate(fraction: 0.03, message: "正在读取 \(urls.count) 个文件及原始规格…"))
-        let sources = await MediaDiscovery.probe(urls)
+        let sources = await MediaDiscovery.probe(urls, captureDates: configuration.captureDates)
         guard !sources.isEmpty else { throw TravelCutError.noUsableVideos }
 
         progress(ProgressUpdate(fraction: 0.06, message: "正在识别镜头和自然事件边界…"))

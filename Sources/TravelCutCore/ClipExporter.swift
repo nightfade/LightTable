@@ -84,7 +84,7 @@ enum ClipExporter {
                 .modificationDate: candidate.source.modifiedAt,
             ], ofItemAtPath: outputURL.path)
 
-            exported.append(ExportedClip(
+            var clip = ExportedClip(
                 outputFile: outputURL.path,
                 sourceFile: candidate.source.url.path,
                 sourceCreatedAt: candidate.source.createdAt,
@@ -105,7 +105,9 @@ enum ClipExporter {
                 hasAudio: candidate.source.hasAudio,
                 audioLabels: candidate.audioLabels,
                 sourceMetadata: candidate.source.metadata
-            ))
+            )
+            clip.originalSourceFile = configuration.originalSources[candidate.source.url.path]
+            exported.append(clip)
             try progress(index + 1, candidates.count, exported)
         }
         return exported

@@ -26,7 +26,7 @@ enum MediaDiscovery {
                 let hasTravelCutMarker = FileManager.default.fileExists(
                     atPath: standardizedURL.appendingPathComponent("selection.json").path
                 )
-                if name.hasPrefix("travelcut 高光片段") || hasTravelCutMarker {
+                if name.hasPrefix("travelcut 高光片段") || name.hasPrefix("lighttable 高光") || name.hasPrefix("lighttable 增稳") || hasTravelCutMarker {
                     enumerator.skipDescendants()
                 }
                 continue
@@ -45,10 +45,11 @@ enum MediaDiscovery {
         return urls.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
     }
 
-    static func probe(_ urls: [URL]) async -> [SourceVideo] {
+    static func probe(_ urls: [URL], captureDates: [String: String] = [:]) async -> [SourceVideo] {
         var sources: [SourceVideo] = []
         for url in urls {
-            if let source = await probe(url) { sources.append(source) }
+            guard let source = await probe(url) else { continue }
+            sources.append(applyingCaptureDate(captureDates[url.standardizedFileURL.path] ?? captureDates[url.path], to: source))
         }
         return sources.sorted {
             if $0.createdAt != $1.createdAt { return $0.createdAt < $1.createdAt }
@@ -99,6 +100,41 @@ enum MediaDiscovery {
             fileSize: Int64(fileValues?.fileSize ?? 0),
             metadata: metadata
         )
+    }
+
+    /// Uses LightTable's zoned creation time when it has one: Sony keeps the offset only in its
+    /// XML, and Gyroflow output keeps only UTC. The value is added as a QuickTime creation date
+    /// record so `ClipOrganizer.captureTimeZone` picks up the camera's zone.
+    static func applyingCaptureDate(_ value: String?, to source: SourceVideo) -> SourceVideo {
+        guard let value, let iso = isoCaptureDate(value),
+              let date = ISO8601DateFormatter().date(from: iso)
+        else { return source }
+        let record = MediaMetadataRecord(identifier: "mdta/com.apple.quicktime.creationdate", keySpace: "mdta",
+                                         key: "com.apple.quicktime.creationdate", value: iso)
+        let others = source.metadata.filter { !(($0.identifier ?? $0.key ?? "").contains("com.apple.quicktime.creationdate")) }
+        return SourceVideo(url: source.url, duration: source.duration, createdAt: date, modifiedAt: source.modifiedAt,
+                           hasAudio: source.hasAudio, width: source.width, height: source.height,
+                           nominalFrameRate: source.nominalFrameRate, codec: source.codec, isHDR: source.isHDR,
+                           fileSize: source.fileSize, metadata: others + [record])
+    }
+
+    /// `2025:10:26 14:10:41-08:00` (exiftool) or ISO 8601 → `2025-10-26T14:10:41-08:00`.
+    /// Values without an offset are rejected: they cannot fix the day folder.
+    static func isoCaptureDate(_ value: String) -> String? {
+        var text = value.trimmingCharacters(in: .whitespaces)
+        if text.count >= 19, text[text.index(text.startIndex, offsetBy: 4)] == ":" {
+            var characters = Array(text)
+            characters[4] = "-"
+            characters[7] = "-"
+            characters[10] = "T"
+            text = String(characters)
+        }
+        // Drop fractional seconds, which ISO8601DateFormatter rejects by default.
+        if let dot = text.firstIndex(of: "."), let zone = text[dot...].firstIndex(where: { $0 == "+" || $0 == "-" || $0 == "Z" }) {
+            text.removeSubrange(dot..<zone)
+        }
+        guard text.count > 19, ClipOrganizer.timeZone(fromISO8601: text) != nil else { return nil }
+        return text
     }
 
     private static func assetCreationDate(_ asset: AVAsset) async -> Date? {
