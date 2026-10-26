@@ -74,7 +74,9 @@
 
 - 关闭看图分类（`--content meta`）时与 `reference/photo_habits.py` 逐项一致：3,709 个表格单元格、55 行带数字的句子、4,498 个单张字段，覆盖全部和 6 个题材视图
 - 忽略 `TravelCut|` 关键字及其末级（照片分组写的「自然景观」里的「自然」会被算成风景）
-- MobileCLIP 替换 open_clip；「其他」阈值 0.45（photo-habits 是 0.40），只在 115 张 macOS 示例图上校准过
+- 题材从 photo-habits 的 6 类扩到 12 类（`HabitCategories.table`，顺序即优先级）；相机场景模式按 `sceneRules` 对应
+- 对照测试把 12 类分类表和场景规则代入 `reference/photo_habits.py` 的副本再运行，统计逻辑仍逐项一致
+- MobileCLIP 替换 open_clip；「其他」阈值 0.45，在 56 张 macOS 示例图上按 12 类校准。「静物与微距」的提示词只描述人造物件，否则会把花的特写全部吸走
 - 缓存在 `<文件夹>/.lighttable-cache/`，文件夹只读时放 `~/Library/Caches/LightTable/Habits/`
 
 ### 打包

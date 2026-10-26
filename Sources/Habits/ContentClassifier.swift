@@ -8,47 +8,86 @@ import TravelCutCore
 /// scene mode and faces, the first that answers wins (photo-habits order).
 public enum HabitCategories {
     /// (name, keyword and folder aliases, MobileCLIP prompts). Aliases ignore case; English ones
-    /// match whole words, Chinese ones substrings. A photo matching several takes the earlier one,
-    /// so 人像 comes before 风景 (an environmental portrait is a portrait).
+    /// match whole words, Chinese ones substrings, so single characters that occur in unrelated
+    /// words (花 in 烟花, 车 in 车站) are avoided. A photo matching several takes the earlier one:
+    /// people first, then specific subjects (food, flowers, animals, vehicles), then scenes from
+    /// specific to general (night before city, interiors before city, city before nature), so a
+    /// flower field is 花卉植物 and a city at night is 夜景与星空.
     static let table: [(String, [String], [String])] = [
         ("人像", ["人像", "肖像", "写真", "合影", "孩子", "宝宝", "家人",
                 "portrait", "portraits", "people", "family", "kids", "baby"],
          ["a portrait photo of a person", "a close-up photo of a person's face", "a photo of a child",
           "a photo of a family posing together", "a photo of a kid playing"]),
-        ("街头", ["街拍", "街头", "扫街", "人文", "street", "streets", "candid"],
+        ("街头人文", ["街拍", "街头", "扫街", "人文", "street", "streets", "candid"],
          ["a candid street photograph of strangers", "people walking in a crowd on a city sidewalk",
           "a photo of a street vendor", "a photo of a crowded market"]),
-        ("风景", ["风景", "风光", "自然", "landscape", "landscapes", "scenery", "nature"],
+        ("活动与运动", ["演出", "演唱会", "音乐会", "比赛", "运动", "体育", "节庆", "庆典", "婚礼", "舞台",
+                   "concert", "concerts", "sports", "sport", "festival", "wedding", "performance", "stage"],
+         ["a photo of a concert or a stage performance", "a photo of people playing a sport",
+          "a photo of a festival parade", "a photo of a wedding ceremony", "a photo of athletes in a race"]),
+        ("美食", ["美食", "食物", "菜品", "甜品", "饮品", "咖啡", "food", "dish", "dishes", "meal", "dessert", "coffee"],
+         ["a photo of food on a plate", "a photo of a meal on a restaurant table", "a photo of a dessert",
+          "a photo of a cup of coffee", "a photo of street food"]),
+        ("花卉植物", ["花卉", "鲜花", "植物", "樱花", "赏花", "红叶", "flower", "flowers", "plant", "plants", "botanical"],
+         ["a close-up photo of a flower", "a macro photo of a blooming flower", "a photo of a field of flowers",
+          "a photo of cherry blossoms", "a close-up photo of a green leaf", "a photo of a cactus or a potted plant",
+          "a photo of autumn leaves"]),
+        ("动物", ["动物", "鸟类", "宠物", "猫咪", "狗狗", "野生", "动物园", "animal", "animals", "wildlife",
+                "bird", "birds", "pet", "pets", "cat", "cats", "dog", "dogs", "zoo"],
+         ["a close-up photo of a dog", "a close-up photo of a cat", "a photo of a bird",
+          "a wildlife photo of an animal", "a photo of animals at a zoo"]),
+        ("交通工具", ["交通工具", "汽车", "火车", "列车", "高铁", "飞机", "航班", "轮船", "游船", "游艇", "地铁", "缆车",
+                  "car", "cars", "train", "trains", "plane", "airplane", "aircraft", "ship", "boat", "boats",
+                  "subway", "tram", "vehicle", "vehicles"],
+         ["a photo of a car", "a photo of a train at a station", "a photo of an airplane",
+          "a photo of a boat on the water", "a photo of a tram or a subway train", "a view from an airplane window"]),
+        ("夜景与星空", ["夜景", "夜拍", "星空", "银河", "极光", "烟花", "night", "nightscape", "stars",
+                   "milky way", "aurora", "astro", "astrophotography", "fireworks"],
+         ["a photo of a city at night with lights", "a photo of the starry night sky", "a photo of the milky way",
+          "a photo of the northern lights", "a photo of fireworks in the night sky"]),
+        ("室内与展馆", ["室内", "博物馆", "美术馆", "展览", "展馆", "酒店", "民宿", "interior", "interiors",
+                   "indoor", "museum", "gallery", "exhibition", "hotel"],
+         ["a photo of the interior of a museum", "a photo of artworks in a gallery", "a photo of the inside of a church",
+          "a photo of a hotel room", "a photo of a cozy living room interior"]),
+        ("城市与建筑", ["建筑", "城市", "街景", "architecture", "cityscape", "urban", "buildings", "city"],
+         ["a photo of a building facade", "architecture photography", "a photo of a city skyline",
+          "a photo of a city street lined with buildings", "a photo of a famous landmark", "a photo of an old town square"]),
+        ("自然风光", ["风景", "风光", "自然", "雪山", "海边", "海滩", "湖泊", "峡湾", "日落", "日出",
+                  "landscape", "landscapes", "scenery", "nature", "mountain", "mountains", "beach", "lake",
+                  "sunset", "sunrise", "fjord"],
          ["a landscape photo of mountains", "a photo of the sea and the coastline", "a photo of a forest",
           "a scenic view of nature under the sky", "a photo of a lake at sunset",
-          "a wide view of open countryside with hills and fields", "a photo inside a cave or a canyon"]),
-        ("城市建筑", ["建筑", "城市", "architecture", "cityscape", "urban", "buildings"],
-         ["a photo of a building facade", "architecture photography", "a photo of a city skyline",
-          "a photo of a city street lined with buildings", "a city at night with neon signs",
-          "a photo of the interior of a church or a museum"]),
-        ("动物", ["动物", "鸟类", "宠物", "猫咪", "狗狗", "animal", "animals", "wildlife",
-                "bird", "birds", "pet", "pets", "cat", "cats", "dog", "dogs"],
-         ["a close-up photo of a dog", "a close-up photo of a cat", "a photo of a bird",
-          "a wildlife photo of an animal"]),
-        ("静物", ["静物", "美食", "食物", "微距", "花卉", "still life", "food", "macro", "product"],
-         ["a photo of food on a table", "a close-up photo of an object", "a still life photo",
-          "a close-up photo of flowers"]),
-        ("其他", [], ["a photo of a document or a screen", "a blurry out of focus photo"]),
+          "a wide view of open countryside with hills and fields", "a photo inside a cave or a canyon",
+          "a photo of a snowy landscape"]),
+        ("静物与微距", ["静物", "微距", "产品", "物件", "still life", "macro", "product", "products"],
+         ["a still life arrangement of man-made objects on a table", "a product photo of a gadget on a plain background",
+          "a photo of a toy or a household object", "a photo of a musical instrument", "a photo of sports equipment like a ball"]),
+        ("其他", [], ["a photo of a document or a screen", "a blurry out of focus photo",
+                     "a screenshot of a phone", "a photo of a receipt or a ticket"]),
     ]
-    /// The six subject categories the report filter offers.
-    public static let subjects = ["人像", "街头", "风景", "城市建筑", "动物", "静物"]
+    /// The subject categories the report filter offers: every category except 其他.
+    public static let subjects = table.map(\.0).filter { $0 != "其他" }
+    /// Camera scene modes LightTable maps to a category when nothing else answers, in order.
+    /// Portrait comes first so "Night Portrait" is a portrait.
+    static let sceneRules: [(needles: [String], category: String)] = [
+        (["portrait"], "人像"),
+        (["night", "fireworks", "star"], "夜景与星空"),
+        (["sport", "action"], "活动与运动"),
+        (["food", "gourmet"], "美食"),
+        (["macro", "close"], "静物与微距"),
+        (["landscape", "scenery", "beach", "snow", "sunset"], "自然风光"),
+    ]
     /// Every category in report order, including 其他 and 未分类.
     public static let all = table.map(\.0) + ["未分类"]
 
     /// Below this top probability MobileCLIP's answer is not trusted and the photo goes to 其他.
-    /// photo-habits used 0.40 for open_clip ViT-B-32. Re-measured for MobileCLIP-S2 with the same
-    /// prompts and softmax(100·cos) on 115 labelled macOS sample pictures (landscapes, animals,
-    /// flowers, objects, abstract wallpapers): clear photos score 0.75–1.0; abstract and graphic
-    /// images are caught by the 其他 prompts themselves (0.5–1.0); true but ambiguous photos (a
-    /// misty peak, a lotus) sit at 0.46–0.55, and the one wrong top answer in the 0.40–0.50 band
-    /// (Earth seen as 人像, 0.41) falls below 0.45. 0.45 keeps the ambiguous-but-right ones and
-    /// drops the guesses. The sample had no people, street or city photos; re-check on a real
-    /// travel folder (`LIGHTTABLE_HABITS_TUNE`, see HabitsTests).
+    /// photo-habits used 0.40 for open_clip ViT-B-32 with 6 categories. Re-measured for
+    /// MobileCLIP-S2 with the 12 categories on 56 macOS sample pictures (animals, flowers, plants,
+    /// objects, instruments, balls, wallpapers): clear subjects score 0.85–1.0; the wrong top
+    /// answers (Earth and a sand dollar read as 人像) sit at 0.31–0.39, below 0.45. Generic
+    /// close-up prompts in 静物与微距 pulled every flower in, so its prompts describe man-made
+    /// objects only. No people, street, food or travel photos were in the sample; re-check on a
+    /// real folder with `LIGHTTABLE_HABITS_TUNE` (see HabitsTests).
     public static let clipMinimumProbability = 0.45
 
     /// Categories whose aliases occur in `s`.
@@ -101,8 +140,9 @@ public enum HabitCategories {
     /// too, so without looking at the image they can only count as portraits).
     static func byCamera(_ record: PhotoRecord) -> (String, String) {
         let scene = record.scene.lowercased()
-        if scene.contains("portrait") { return ("人像", "相机场景模式") }
-        if scene.contains("landscape") || scene.contains("scenery") { return ("风景", "相机场景模式") }
+        for rule in sceneRules where rule.needles.contains(where: scene.contains) {
+            return (rule.category, "相机场景模式")
+        }
         if record.faces > 0 { return ("人像", "人脸检测") }
         return ("未分类", "")
     }

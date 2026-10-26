@@ -90,23 +90,23 @@ private func testTimeParsing() {
 }
 
 private func testAliasMatching() {
-    expect(HabitCategories.aliasHits("Street 2024") == ["街头"], "English whole word")
+    expect(HabitCategories.aliasHits("Street 2024") == ["街头人文"], "English whole word")
     expect(HabitCategories.aliasHits("Concatenate").isEmpty, "cat inside a word does not count")
     expect(HabitCategories.aliasHits("location").isEmpty, "no partial English match")
     expect(HabitCategories.aliasHits("cat_2024") == ["动物"], "underscore is a word boundary")
     expect(HabitCategories.aliasHits("宠物猫") == ["动物"], "Chinese substring")
-    expect(HabitCategories.aliasHits("2023 街拍") == ["街头"], "Chinese folder name")
+    expect(HabitCategories.aliasHits("2023 街拍") == ["街头人文"], "Chinese folder name")
     expect(HabitCategories.aliasHits("Family Portraits") == ["人像"], "case-insensitive, first category only once")
-    expect(HabitCategories.aliasHits("still life") == ["静物"], "multi-word alias")
+    expect(HabitCategories.aliasHits("still life") == ["静物与微距"], "multi-word alias")
     var r = stubRecord(path: "/root/风景/2024 街拍/a.jpg")
-    expect(HabitCategories.byTags(r, root: "/root")?.0 == "街头", "deepest folder wins")
+    expect(HabitCategories.byTags(r, root: "/root")?.0 == "街头人文", "deepest folder wins")
     r.keywords = ["family"]
     expect(HabitCategories.byTags(r, root: "/root")! == ("人像", "关键词"), "keyword beats folder")
     let rootNamed = stubRecord(path: "/photos/风景/a.jpg")
     expect(HabitCategories.byTags(rootNamed, root: "/photos/风景") == nil, "root folder name does not count")
     var scene = stubRecord(path: "/r/a.jpg")
     scene.scene = "Landscape"
-    expect(HabitCategories.byCamera(scene) == ("风景", "相机场景模式"), "scene mode")
+    expect(HabitCategories.byCamera(scene) == ("自然风光", "相机场景模式"), "scene mode")
     scene.scene = ""
     scene.faces = 2
     expect(HabitCategories.byCamera(scene) == ("人像", "人脸检测"), "faces")
@@ -121,7 +121,7 @@ private func testKeywordsIgnoreOwn() {
     expect(!keywords.contains("自然景观") && !keywords.contains("组 0001") && !keywords.contains("TravelCut"),
            "photo-grouping keywords ignored, got \(keywords)")
     expect(keywords.contains("街拍") && keywords.contains("巴黎") && keywords.contains("旅行"), "user keywords kept")
-    expect(HabitCategories.firstInOrder(keywords.flatMap(HabitCategories.aliasHits)) == "街头",
+    expect(HabitCategories.firstInOrder(keywords.flatMap(HabitCategories.aliasHits)) == "街头人文",
            "自然 in TravelCut's theme does not make it 风景")
 }
 
@@ -564,7 +564,46 @@ private func parseCSV(_ text: String) -> [[String]] {
     return rows
 }
 
+/// photo_habits.py with LightTable's category table and scene rules swapped in, so parity keeps
+/// checking every statistic after LightTable widened the categories from 6 to 12.
+private func patchedPhotoHabits(_ original: URL) -> URL? {
+    guard var source = try? String(contentsOf: original, encoding: .utf8) else { return nil }
+    let table = HabitCategories.table.map { [$0.0, $0.1, $0.2] as [Any] }
+    let rules = HabitCategories.sceneRules.map { [$0.needles, $0.category] as [Any] }
+    guard let tableJSON = (try? JSONSerialization.data(withJSONObject: table)).map({ String(decoding: $0, as: UTF8.self) }),
+          let rulesJSON = (try? JSONSerialization.data(withJSONObject: rules)).map({ String(decoding: $0, as: UTF8.self) })
+    else { return nil }
+    let quote = String(repeating: "'", count: 3)
+    let camera = [
+        "def classify_by_camera(r):",
+        "    scene = r[\"scene\"].lower()",
+        "    for needles, category in json.loads(r\(quote)\(rulesJSON)\(quote)):",
+        "        if any(n in scene for n in needles):",
+        "            return category, \"相机场景模式\"",
+        "    if r[\"faces\"]:",
+        "        return \"人像\", \"人脸检测\"",
+        "    return \"未分类\", \"\"",
+    ].joined(separator: "\n")
+    guard let cameraStart = source.range(of: "def classify_by_camera(r):"),
+          let cameraEnd = source.range(of: "\n\n\n", range: cameraStart.upperBound..<source.endIndex)
+    else { return nil }
+    source.replaceSubrange(cameraStart.lowerBound..<cameraEnd.lowerBound, with: camera)
+    guard let start = source.range(of: "CATEGORIES = ["),
+          let end = source.range(of: "CATEGORY_NAMES = ", range: start.upperBound..<source.endIndex)
+    else { return nil }
+    source.replaceSubrange(start.lowerBound..<end.lowerBound,
+                           with: "CATEGORIES = [tuple(c) for c in json.loads(r\(quote)\(tableJSON)\(quote))]\n")
+    let patched = scratchFolder("habits-patched-script").appendingPathComponent("photo_habits.py")
+    guard (try? source.write(to: patched, atomically: true, encoding: .utf8)) != nil else { return nil }
+    return patched
+}
+
 private func parity(fixture: URL, stats: [String: Any], python: (URL, URL)) {
+    guard let script = patchedPhotoHabits(python.1) else {
+        failures.append("habits: could not patch photo_habits.py with LightTable's categories")
+        return
+    }
+    let python = (python.0, script)
     let out = scratchFolder("habits-photo-habits")
     let root = HabitsEngine.normalizedRoot(fixture)
     func runPython(_ extra: [String], outDir: URL) -> String? {
@@ -647,7 +686,7 @@ private func clipSmokeTest() async {
     let samples: [(String, Set<String>)] = [
         ("/Library/User Pictures/Animals/Eagle.heic", ["动物"]),
         ("/Library/User Pictures/Animals/Zebra.heic", ["动物"]),
-        ("/Library/User Pictures/Flowers/Sunflower.heic", ["静物", "风景"]),
+        ("/Library/User Pictures/Flowers/Sunflower.heic", ["花卉植物", "自然风光"]),
     ].filter { FileManager.default.fileExists(atPath: $0.0) }
     guard !samples.isEmpty else {
         print("habits: no sample pictures found, skipping image classification smoke test")
