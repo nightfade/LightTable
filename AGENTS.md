@@ -136,10 +136,10 @@ LIGHTTABLE_SNAPSHOT_LUTS=<LUT 文件夹> [LIGHTTABLE_SNAPSHOT_AUTORUN=1] .build/
 
 ## 6. 未验证与待办
 
-- 真窗口里的交互（拖放、弹窗、菜单栏、关窗后继续）还没人手动点过；沙盒里不能启动图形界面
+- 使用者 2026-10-25 在真窗口里试用 0.1.1 确认可用；沙盒里仍不能启动图形界面，界面改动用离屏快照检查
 - 真实照片上的拍摄习惯报告和 MobileCLIP 阈值（本机能访问的位置没有相机照片）
 - 10 位、带陀螺仪数据的原片只增稳不调色时，Gyroflow 是否保留 10 位
 - 时间估算按 CPU 粗估（Gyroflow 2 倍实时、LUT 1.5 倍），需在正常 App（GPU）里校准
 - 松下 V-Log 的识别：读不到时归「未识别」，由使用者按机型归组
 - 公开发布：Developer ID 签名与公证、MobileCLIP 权重许可（仅研究用途）复核、随附 LGPL 源码声明
-- GitHub：2026-10-25 已推到 https://github.com/nightfade/LightTable （公开）；v0.1.0 安装包已作为预发布 Release 上传（SHA-256 983ce649…，含新图标，已经 API 下载核对）；三个旧仓库（TravelCut、batch-gyroflow、photo-habits）已于 2026-10-25 加「已并入」说明并归档为只读
+- GitHub：2026-10-25 已推到 https://github.com/nightfade/LightTable （公开）；v0.1.0 为预发布；v0.1.1 为正式版 Latest（SHA-256 145bbe0e…，已下载核对）；三个旧仓库（TravelCut、batch-gyroflow、photo-habits）已于 2026-10-25 加「已并入」说明并归档为只读
