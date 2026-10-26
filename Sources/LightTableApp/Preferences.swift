@@ -32,11 +32,11 @@ struct Preferences {
 
     static var themes: Set<HighlightTheme> {
         get {
-            guard let saved = defaults.stringArray(forKey: "LightTable.themes") else { return HighlightTheme.defaultSelection }
-            let themes = Set(saved.compactMap(HighlightTheme.init(rawValue:)))
+            guard let saved = defaults.stringArray(forKey: "LightTable.themes.v2") else { return HighlightTheme.defaultSelection }
+            let themes = Set(saved.compactMap(HighlightTheme.init(named:)))
             return themes.isEmpty ? HighlightTheme.defaultSelection : themes
         }
-        set { defaults.set(HighlightTheme.allCases.filter(newValue.contains).map(\.rawValue), forKey: "LightTable.themes") }
+        set { defaults.set(HighlightTheme.allCases.filter(newValue.contains).map(\.rawValue), forKey: "LightTable.themes.v2") }
     }
 
     static func bool(_ key: String, default value: Bool = false) -> Bool {

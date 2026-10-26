@@ -2,15 +2,22 @@ import AVFoundation
 import Foundation
 import Vision
 
+/// What the user wants to keep. The same names as the shooting-habit categories (minus 静物与微距,
+/// plus the travel-only 沿途风景), so video highlights, photo-grouping keywords and the habit
+/// report speak one vocabulary.
 public enum HighlightTheme: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
-    case roadScenery = "沿途风景"
-    case nature = "自然景观"
-    case cityStreet = "城市街景"
-    case landmark = "地标建筑"
-    case people = "人物互动"
-    case food = "当地美食"
-    case cultureActivity = "活动人文"
+    case people = "人像"
+    case street = "街头人文"
+    case cultureActivity = "活动与运动"
+    case food = "美食"
+    case flowers = "花卉植物"
     case animals = "动物"
+    case vehicles = "交通工具"
+    case night = "夜景与星空"
+    case interior = "室内与展馆"
+    case city = "城市与建筑"
+    case nature = "自然风光"
+    case roadScenery = "沿途风景"
 
     public var id: String { rawValue }
 
@@ -18,45 +25,93 @@ public enum HighlightTheme: String, CaseIterable, Codable, Hashable, Identifiabl
         Set(allCases)
     }
 
-    var mobileCLIPPrompt: String {
+    /// Names used before LightTable unified the vocabulary (TravelCut 0.8.0 and earlier), kept so
+    /// checkpoints, caches and saved choices from then still load.
+    static let legacyNames: [String: HighlightTheme] = [
+        "自然景观": .nature, "城市街景": .city, "地标建筑": .city,
+        "人物互动": .people, "当地美食": .food, "活动人文": .cultureActivity,
+    ]
+
+    /// Current or legacy name.
+    public init?(named name: String) {
+        if let theme = HighlightTheme(rawValue: name) ?? Self.legacyNames[name] { self = theme } else { return nil }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let name = try decoder.singleValueContainer().decode(String.self)
+        guard let theme = HighlightTheme(named: name) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "unknown theme \(name)"))
+        }
+        self = theme
+    }
+
+    /// Three short prompts per theme; a frame takes the best of them. CLIP matches one clear
+    /// concept better than a long list, and an equal count keeps themes on an even footing.
+    var mobileCLIPPrompts: [String] {
         switch self {
-        case .roadScenery:
-            return "memorable scenery filmed along a road or through a train car boat window during a journey"
-        case .nature:
-            return "a beautiful travel landscape with mountains beach ocean lake forest waterfall snow sunset sunrise aurora northern lights or a starry night sky"
-        case .cityStreet:
-            return "an interesting city street neighborhood market or everyday street scene while traveling, by day or at night with festive lights"
-        case .landmark:
-            return "an impressive travel landmark historic site temple church interior museum or beautiful architecture"
         case .people:
-            return "friends or family enjoying a vacation together with candid emotion conversation or interaction"
-        case .food:
-            return "local food restaurant cafe market meal or cooking experience during a trip"
+            return ["friends or family smiling together on a trip", "a candid photo of people talking and laughing",
+                    "a group of people posing for a photo"]
+        case .street:
+            return ["everyday street life with locals walking by", "a busy local market with street vendors",
+                    "people in a narrow old town street"]
         case .cultureActivity:
-            return "a cultural performance festival light show ride sport or memorable travel activity"
+            return ["a concert or a stage performance", "a festival parade or a light show",
+                    "people playing a sport or a fun activity"]
+        case .food:
+            return ["a plate of local food on a restaurant table", "street food at a market stall",
+                    "a dessert or a cup of coffee in a cafe"]
+        case .flowers:
+            return ["a close-up photo of a flower", "a field of blooming flowers or cherry blossoms",
+                    "green leaves, a cactus or autumn foliage"]
         case .animals:
-            return "wildlife pets or animals encountered during a journey"
+            return ["a wild animal in nature", "a bird", "a pet dog or cat, or farm animals"]
+        case .vehicles:
+            return ["a train or a tram", "a boat or a ferry on the water", "an airplane, a cable car or a classic car"]
+        case .night:
+            return ["a city at night with bright lights", "a starry night sky or the milky way",
+                    "the northern lights or fireworks in the night sky"]
+        case .interior:
+            return ["the interior of a museum or an art gallery", "the inside of a church or a palace hall",
+                    "a beautiful hotel room interior"]
+        case .city:
+            return ["a famous landmark or historic building", "an old town square with beautiful architecture",
+                    "a city skyline"]
+        case .nature:
+            return ["a landscape with mountains and lakes", "a coastline with the sea and beach",
+                    "a forest, waterfall or snowy landscape at sunrise or sunset"]
+        case .roadScenery:
+            return ["scenery filmed through a car or train window", "a road trip view of the highway ahead",
+                    "the view from a boat during a journey"]
         }
     }
 
     var qwenGuidance: String {
         switch self {
+        case .people:
+            return "人像：同行者的表情、对话、动作、合影过程和真实情绪"
+        case .street:
+            return "街头人文：街道、市场、店铺里的当地人和日常生活场景"
+        case .cultureActivity:
+            return "活动与运动：表演、演唱会、节庆游行、灯光秀、游乐、比赛和运动体验"
+        case .food:
+            return "美食：餐厅、咖啡馆、市场、菜品、甜品和制作过程"
+        case .flowers:
+            return "花卉植物：花朵特写、花海、樱花、红叶、植物园和有特色的植物"
+        case .animals:
+            return "动物：旅途中遇到的野生动物、牧场动物、鸟类和宠物互动"
+        case .vehicles:
+            return "交通工具：以火车、电车、船、缆车、飞机或特色车辆为主体的画面"
+        case .night:
+            return "夜景与星空：城市夜景和灯光、星空、银河、极光和烟花"
+        case .interior:
+            return "室内与展馆：博物馆、美术馆、教堂、宫殿内部和有特色的酒店室内"
+        case .city:
+            return "城市与建筑：名胜、地标、历史建筑、老城广场和城市天际线"
+        case .nature:
+            return "自然风光：山川、海岸、湖泊、森林、瀑布、雪景、日出日落"
         case .roadScenery:
             return "沿途风景：公路、步行途中、车窗、火车、船上看到的景色和旅途氛围；只要清晰稳定并能记录路线，即使常见也有保留价值"
-        case .nature:
-            return "自然景观：山川、海岸、湖泊、森林、瀑布、雪景雪原、日出日落、极光、星空和夜空等"
-        case .cityStreet:
-            return "城市街景：街道、社区、市场、店铺和当地日常生活环境，包括夜晚的街景、节日灯饰和城市灯光"
-        case .landmark:
-            return "地标建筑：名胜、历史遗迹、建筑及其内部、教堂、寺庙、博物馆和观景地"
-        case .people:
-            return "人物互动：同行者的表情、对话、动作、合影过程和真实情绪"
-        case .food:
-            return "当地美食：餐厅、咖啡馆、市场、菜品和制作过程"
-        case .cultureActivity:
-            return "活动人文：表演、节庆、灯光秀、游乐、运动和当地文化体验"
-        case .animals:
-            return "动物：旅途中遇到的野生动物、牧场动物和宠物互动"
         }
     }
 }

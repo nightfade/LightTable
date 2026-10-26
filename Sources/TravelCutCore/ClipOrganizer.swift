@@ -4,7 +4,7 @@ import Foundation
 /// shooting order inside it, with the time and content type in the file name. Dragging a
 /// day folder into 剪映 then gives that day's timeline in order.
 ///
-///     TravelCut 高光片段/D1_0718_周五/001_0935_自然景观_山顶日出_DJI_0042.mov
+///     TravelCut 高光片段/D1_0718_周五/001_0935_自然风光_山顶日出_DJI_0042.mov
 ///
 /// The source file name stays at the end so a clip can be traced without opening the report,
 /// while the part 剪映 shows first is sequence, time and content type.
@@ -186,7 +186,7 @@ extension TravelCutDiagnostics {
         let afterGap = source("C", "2026-07-20T11:00:00Z", offset: "2026-07-20T12:00:00+0100")
         let candidates = [
             candidate(afterGap, start: 0, theme: .food, label: "烤串"),
-            candidate(lateNight, start: 300, theme: .people, label: "人物互动"),   // 00:03 next day
+            candidate(lateNight, start: 300, theme: .people, label: "人像"),   // 00:03 next day
             candidate(lateNight, start: 0, theme: nil, label: "夜景"),
             candidate(nextDay, start: 0, theme: .nature, label: "山顶/日出"),
         ]
@@ -196,8 +196,8 @@ extension TravelCutDiagnostics {
             expect(plan[2].dayFolder == "D1_0717_周五", "first day folder uses capture zone and weekday, got \(plan[2].dayFolder)")
             expect(plan[2].baseName == "001_2358_旅行高光_夜景_A", "missing theme falls back, got \(plan[2].baseName)")
             expect(plan[1].dayFolder == "D2_0718_周六", "clip after midnight moves to the next day, got \(plan[1].dayFolder)")
-            expect(plan[1].baseName == "001_0003_人物互动_A", "label equal to theme is not repeated, got \(plan[1].baseName)")
-            expect(plan[3].baseName == "002_0930_自然景观_山顶-日出_B", "per-day numbering follows shooting time, got \(plan[3].baseName)")
+            expect(plan[1].baseName == "001_0003_人像_A", "label equal to theme is not repeated, got \(plan[1].baseName)")
+            expect(plan[3].baseName == "002_0930_自然风光_山顶-日出_B", "per-day numbering follows shooting time, got \(plan[3].baseName)")
             expect(plan[0].dayFolder == "D4_0720_周一", "a day without clips still counts, got \(plan[0].dayFolder)")
             expect(plan[0].timeZone.secondsFromGMT() == paris.secondsFromGMT(), "capture offset is used")
         }
@@ -210,7 +210,7 @@ extension TravelCutDiagnostics {
                "sources without the QuickTime date fall back to this Mac")
 
         let schema = QwenVideoAnalyzer.responseSchema(themes: [.nature, .food])
-        expect(schema.contains(#""enum":["自然景观","当地美食"]"#), "Qwen schema limits theme to the selection")
+        expect(schema.contains(#""enum":["自然风光","美食"]"#), "Qwen schema limits theme to the selection")
         expect((try? JSONSerialization.jsonObject(with: Data(schema.utf8))) != nil, "Qwen schema is valid JSON")
         return failures
     }
@@ -241,7 +241,7 @@ extension TravelCutDiagnostics {
         }
         let candidates = [
             candidate(start: 1, theme: .nature, label: "湖边"),
-            candidate(start: 8, theme: .people, label: "人物互动"),
+            candidate(start: 8, theme: .people, label: "人像"),
         ]
         let configuration = JobConfiguration(
             inputFolder: sample.deletingLastPathComponent(),

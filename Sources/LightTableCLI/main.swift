@@ -16,7 +16,7 @@ let usage = """
   stabilize <文件夹> [--lut 文件.cube（只套 Log 画面）] [--lut-for 画面=文件.cube ...] [--no-stabilize]
             [--output 文件夹] [--max-zoom 117.6] [--readout-time 15.6] [--dry-run]
                                         增稳调色，结果在 <输出>/LightTable 增稳/
-  highlights <文件夹> [--output 文件夹] [--themes 自然景观,人物互动] [--fast-only] [--after-stabilize]
+  highlights <文件夹> [--output 文件夹] [--themes 自然风光,人像] [--fast-only] [--after-stabilize]
                                         挑视频高光；--after-stabilize 用 LightTable 增稳/ 里的成片代替原片
   photos <文件夹> [--fast-only] [--dry-run] [--stars] [--online-places] [--themes ...]
                                         照片分组（写进照片元数据）
@@ -72,9 +72,9 @@ struct Arguments {
 func themes(_ text: String?) -> Set<HighlightTheme> {
     guard let text else { return HighlightTheme.defaultSelection }
     let names = text.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-    let themes = Set(names.compactMap(HighlightTheme.init(rawValue:)))
+    let themes = Set(names.compactMap(HighlightTheme.init(named:)))
     guard !themes.isEmpty, themes.count == names.count else {
-        fail("未知标签；可用：\(HighlightTheme.allCases.map(\.rawValue).joined(separator: ","))")
+        fail("未知内容；可用：\(HighlightTheme.allCases.map(\.rawValue).joined(separator: ","))")
     }
     return themes
 }

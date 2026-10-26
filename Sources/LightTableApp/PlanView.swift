@@ -266,15 +266,19 @@ struct HighlightOptions: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("想保留的内容").font(.callout).foregroundStyle(.secondary)
+            HStack {
+                Text("想保留的内容").font(.callout).foregroundStyle(.secondary)
+                Spacer()
+                Button(model.themes.count == HighlightTheme.allCases.count ? "全不选" : "全选") {
+                    model.themes = model.themes.count == HighlightTheme.allCases.count ? [] : HighlightTheme.defaultSelection
+                }
+                .buttonStyle(.link)
+            }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
                 ForEach(HighlightTheme.allCases) { theme in
-                    Toggle(theme.rawValue, isOn: Binding(
-                        get: { model.themes.contains(theme) },
-                        set: { if $0 { model.themes.insert(theme) } else { model.themes.remove(theme) } }
-                    ))
-                    .toggleStyle(.button)
-                    .frame(maxWidth: .infinity)
+                    ThemeChip(title: theme.rawValue, selected: model.themes.contains(theme)) {
+                        if model.themes.contains(theme) { model.themes.remove(theme) } else { model.themes.insert(theme) }
+                    }
                 }
             }
             if model.selected.contains(.stabilize) {
@@ -282,6 +286,31 @@ struct HighlightOptions: View {
             }
         }
         .padding(.leading, 22)
+    }
+}
+
+/// A selectable chip whose state is visible at a glance: filled check and tint when chosen.
+struct ThemeChip: View {
+    let title: String
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                Text(title).foregroundStyle(selected ? Color.primary : Color.secondary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
+            .background(RoundedRectangle(cornerRadius: 8).fill(selected ? Color.accentColor.opacity(0.12) : Color.secondary.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(selected ? Color.accentColor.opacity(0.6) : Color.secondary.opacity(0.2)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

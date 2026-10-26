@@ -163,7 +163,7 @@ extension TravelCutDiagnostics {
 
         let fields = XMPSidecarWriter.Fields(
             rating: 3, title: "组 0042 · 第 1/5",
-            keywords: [["TravelCut", "组", "组 0042"], ["TravelCut", "主题", "自然景观"]]
+            keywords: [["TravelCut", "组", "组 0042"], ["TravelCut", "主题", "自然风光"]]
         )
         func read(_ url: URL) -> String { (try? String(contentsOf: url, encoding: .utf8)) ?? "" }
         func values(_ url: URL, _ xpath: String) -> [String] {
@@ -187,8 +187,8 @@ extension TravelCutDiagnostics {
         expect((try? XMPSidecarWriter.apply(fields, to: fresh)) == .written, "new sidecar is written")
         expect(rating(fresh) == ["3"], "new sidecar has the rating, got \(rating(fresh))")
         expect(values(fresh, "//*[local-name()='title']//*[local-name()='li']") == ["组 0042 · 第 1/5"], "title written")
-        expect(Set(values(fresh, hierPath)) == ["TravelCut|组|组 0042", "TravelCut|主题|自然景观"], "hierarchical keywords")
-        expect(Set(values(fresh, subjectPath)) == ["组 0042", "自然景观"], "flat keywords")
+        expect(Set(values(fresh, hierPath)) == ["TravelCut|组|组 0042", "TravelCut|主题|自然风光"], "hierarchical keywords")
+        expect(Set(values(fresh, subjectPath)) == ["组 0042", "自然风光"], "flat keywords")
 
         // 2. Re-run replaces TravelCut's own values without duplicating keywords.
         let rerun = XMPSidecarWriter.Fields(rating: 2, title: "组 0043 · 第 2/3",
@@ -227,7 +227,7 @@ extension TravelCutDiagnostics {
         let after = read(edited)
         expect(after.contains("crs:Exposure2012=\"+0.50\"") && after.contains("crs:Temperature=\"5600\""), "Camera Raw edits kept")
         expect(after.contains("Adobe Bridge 2025"), "other metadata kept")
-        expect(Set(values(edited, subjectPath)) == ["巴黎", "组 0042", "自然景观"], "user keywords kept, got \(values(edited, subjectPath))")
+        expect(Set(values(edited, subjectPath)) == ["巴黎", "组 0042", "自然风光"], "user keywords kept, got \(values(edited, subjectPath))")
         expect(rating(edited) == ["3"], "rating added to Camera Raw sidecar")
 
         // 5. User marks: attribute rating, element rating, colour label.

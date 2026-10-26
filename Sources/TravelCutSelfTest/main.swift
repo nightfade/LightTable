@@ -46,6 +46,18 @@ struct TravelCutSelfTest {
             failures: &failures
         )
 
+        // Names from TravelCut 0.8.0 still load from checkpoints, caches and saved choices.
+        let legacy = try? JSONDecoder().decode([HighlightTheme].self, from: Data(#"["自然景观","城市街景","地标建筑","人物互动","当地美食","活动人文","沿途风景"]"#.utf8))
+        check(
+            legacy == [.nature, .city, .city, .people, .food, .cultureActivity, .roadScenery],
+            "legacy theme names decode to the unified themes, got \(String(describing: legacy))",
+            failures: &failures
+        )
+        check(HighlightTheme(named: "地标建筑") == .city && HighlightTheme(named: "花卉植物") == .flowers
+              && HighlightTheme(named: "静物与微距") == nil,
+              "theme lookup by current or legacy name", failures: &failures)
+        check(HighlightTheme.allCases.count == 12, "twelve selectable themes", failures: &failures)
+
         failures.append(contentsOf: TravelCutDiagnostics.recoverySelfTest())
         failures.append(contentsOf: TravelCutDiagnostics.organizationSelfTest())
         failures.append(contentsOf: TravelCutDiagnostics.photoCullingSelfTest())

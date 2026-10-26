@@ -30,10 +30,8 @@ final class MobileCLIPAnalyzer {
         let tokenizer = try CLIPTokenizer()
         self.imageModel = imageModel
 
-        let selectedDefinitions = HighlightTheme.allCases.compactMap { theme in
-            selectedThemes.contains(theme)
-                ? (theme.rawValue, theme.mobileCLIPPrompt, true)
-                : nil
+        let selectedDefinitions = HighlightTheme.allCases.filter(selectedThemes.contains).flatMap { theme in
+            theme.mobileCLIPPrompts.map { (theme.rawValue, $0, true) }
         }
         let definitions: [(String, String, Bool)] = selectedDefinitions + [
             ("误拍废片", "an accidental blurry unusable video frame", false),
