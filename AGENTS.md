@@ -101,6 +101,7 @@
 ```bash
 swift build --disable-sandbox
 swift run --disable-sandbox lighttable-selftest              # 全部；可加 kit / stabilize / habits
+LIGHTTABLE_SAMPLE_CLIP=<ZV-E10 原片> swift run --disable-sandbox lighttable-selftest   # 带真实片段的扫描与增稳测试
 LIGHTTABLE_SKIP_REAL=1 swift run --disable-sandbox lighttable-selftest stabilize   # 跳过真实片段
 swift run --disable-sandbox travelcut-selftest
 ./scripts/build-ffmpeg-lgpl.sh                               # 一次性，产出 vendor/ffmpeg

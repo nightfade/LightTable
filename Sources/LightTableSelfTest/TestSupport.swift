@@ -16,3 +16,9 @@ func scratchFolder(_ name: String) -> URL {
     try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
 }
+
+/// The real ZV-E10 clip used by scanner and stabilise tests: `LIGHTTABLE_SAMPLE_CLIP`, else the
+/// copy that lived in the workspace when the tests were written. Tests skip when it is missing.
+var sampleClip: URL {
+    URL(fileURLWithPath: ProcessInfo.processInfo.environment["LIGHTTABLE_SAMPLE_CLIP"] ?? "/Users/mengz/WorkSpace/C0835.MP4")
+}

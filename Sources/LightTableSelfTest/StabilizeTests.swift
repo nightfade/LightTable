@@ -696,7 +696,7 @@ func testLUTPreview(ffmpeg: URL) async {
 /// One stabilise + LUT run on a copy of the real ZV-E10 clip. About a minute: Gyroflow falls
 /// back to the CPU inside the sandbox.
 func testRealClip() async {
-    let original = URL(fileURLWithPath: "/Users/mengz/WorkSpace/C0835.MP4")
+    let original = sampleClip
     guard FileManager.default.fileExists(atPath: original.path), case .ready = Gyroflow.check() else {
         print("stabilize: real clip or Gyroflow missing, skipping the real-clip run")
         return

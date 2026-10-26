@@ -2,41 +2,41 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleDevelopmentRegion</key>
-    <string>zh_CN</string>
-    <key>CFBundleDisplayName</key>
-    <string>LightTable</string>
-    <key>CFBundleExecutable</key>
-    <string>LightTable</string>
-    <key>CFBundleIdentifier</key>
-    <string>local.nightfade.lighttable</string>
-    <key>CFBundleIconFile</key>
-    <string>AppIcon</string>
-    <key>CFBundleInfoDictionaryVersion</key>
-    <string>6.0</string>
-    <key>CFBundleName</key>
-    <string>LightTable</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
-    <key>CFBundleVersion</key>
-    <string>1</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>14.0</string>
-    <key>LSApplicationCategoryType</key>
-    <string>public.app-category.photography</string>
-    <key>NSHighResolutionCapable</key>
-    <true/>
-    <key>NSHumanReadableCopyright</key>
-    <string>LightTable 看片台</string>
-    <key>NSRemovableVolumesUsageDescription</key>
-    <string>读取存储卡和移动硬盘上的照片和视频。</string>
-    <key>NSDocumentsFolderUsageDescription</key>
-    <string>读取和整理放在「文稿」里的照片和视频。</string>
-    <key>NSDesktopFolderUsageDescription</key>
-    <string>读取和整理放在「桌面」上的照片和视频。</string>
-    <key>NSDownloadsFolderUsageDescription</key>
-    <string>读取和整理放在「下载」里的照片和视频。</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>zh_CN</string>
+	<key>CFBundleDisplayName</key>
+	<string>LightTable</string>
+	<key>CFBundleExecutable</key>
+	<string>LightTable</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>local.nightfade.lighttable</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>LightTable</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.1</string>
+	<key>CFBundleVersion</key>
+	<string>2</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.photography</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>读取和整理放在「桌面」上的照片和视频。</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>读取和整理放在「文稿」里的照片和视频。</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>读取和整理放在「下载」里的照片和视频。</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>LightTable 看片台</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>读取存储卡和移动硬盘上的照片和视频。</string>
 </dict>
 </plist>

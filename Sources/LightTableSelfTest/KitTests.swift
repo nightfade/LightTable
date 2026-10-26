@@ -171,9 +171,9 @@ private func testRegistry() {
 }
 
 private func testScanner() async {
-    let sample = URL(fileURLWithPath: "/Users/mengz/WorkSpace/C0835.MP4")
+    let sample = sampleClip
     guard FileManager.default.fileExists(atPath: sample.path), Tools.find(.ffprobe) != nil else {
-        print("kit: skipped scanner test (needs C0835.MP4 and ffprobe)")
+        print("kit: skipped scanner test (needs the sample clip, see LIGHTTABLE_SAMPLE_CLIP, and ffprobe)")
         return
     }
     let root = scratchFolder("scan")
